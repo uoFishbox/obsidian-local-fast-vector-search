@@ -1,98 +1,283 @@
-import {
-	App,
-	Editor,
-	MarkdownView,
-	Notice,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-} from "obsidian";
+import { Plugin, Notice } from "obsidian";
 
-// Remember to rename these classes and interfaces!
+const VECTOR_DIMENSION = 512;
+const EMBEDDING_KEYS: (keyof any)[] = [
+	"sentence_embedding",
+	"last_hidden_state",
+];
 
-interface MyPluginSettings {
-	mySetting: string;
-}
+type PreTrainedModelType = import("@huggingface/transformers").PreTrainedModel;
+type PreTrainedTokenizerType =
+	import("@huggingface/transformers").PreTrainedTokenizer;
+type TensorType = import("@huggingface/transformers").Tensor;
+type AutoModelType = typeof import("@huggingface/transformers").AutoModel;
+type AutoTokenizerType =
+	typeof import("@huggingface/transformers").AutoTokenizer;
+// ---------------------------------
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: "default",
-};
+export default class MyVectorPlugin extends Plugin {
+	model: PreTrainedModelType | null = null;
+	tokenizer: PreTrainedTokenizerType | null = null;
+	isModelReady: boolean = false;
+	isLoading: boolean = false;
+	private initializationPromise: Promise<void> | null = null;
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+	// --- transformers のモジュールを保持する変数 ---
+	private transformers: {
+		AutoModel: AutoModelType;
+		AutoTokenizer: AutoTokenizerType;
+		Tensor: typeof import("@huggingface/transformers").Tensor;
+		env: typeof import("@huggingface/transformers").env;
+	} | null = null;
+	// -----------------------------------------
 
 	async onload() {
-		await this.loadSettings();
+		console.log("MyVectorPlugin loading...");
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon(
-			"dice",
-			"Sample Plugin",
-			(evt: MouseEvent) => {
-				// Called when the user clicks the icon.
-				new Notice("This is a notice!");
-			}
-		);
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass("my-plugin-ribbon-class");
+		this.app.workspace.onLayoutReady(async () => {
+			console.log(
+				"Obsidian layout ready. Triggering background initialization."
+			);
+			this.initializeResources().catch((error) => {
+				console.error("Background model initialization failed:", error);
+			});
+		});
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("Status Bar Text");
-
-		// This adds an editor command that can perform some operation on the current editor instance
 		this.addCommand({
-			id: "sample-editor-command",
-			name: "Sample editor command",
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection("Sample Editor Command");
+			id: "vectorize-current-note",
+			name: "Vectorize current note",
+			editorCallback: async (editor, view) => {
+				try {
+					await this.ensureModelInitialized();
+				} catch (error) {
+					console.error("Model initialization failed:", error);
+					new Notice(
+						"Failed to initialize AI model. Check console for details."
+					);
+					return;
+				}
+
+				if (!this.isModelReady || !this.model || !this.tokenizer) {
+					new Notice(
+						"Model is not ready. Initialization might have failed or is still in progress."
+					);
+					return;
+				}
+
+				const text = editor.getValue();
+				const sentences = text
+					.split(/\n+/)
+					.map((s) => s.trim())
+					.filter((s) => s.length > 0);
+
+				if (sentences.length === 0) {
+					new Notice("No text found to vectorize.");
+					return;
+				}
+
+				try {
+					new Notice(`Vectorizing ${sentences.length} sentences...`);
+					const vectors = await this.vectorizeSentencesInternal(
+						sentences
+					);
+					new Notice(
+						`Vectorization complete! ${vectors.length} vectors generated.`
+					);
+				} catch (error) {
+					console.error("Vectorization failed:", error);
+					new Notice(
+						"Vectorization failed. Check console for details."
+					);
+				}
 			},
 		});
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		console.log("MyVectorPlugin loaded command.");
 	}
 
-	onunload() {}
+	async ensureModelInitialized(): Promise<void> {
+		if (this.isModelReady) {
+			return Promise.resolve();
+		}
 
-	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+		if (!this.initializationPromise) {
+			console.log("Initialization not yet started. Starting now.");
+			this.initializationPromise = this.initializeResources();
+		} else {
+			console.log(
+				"Initialization already in progress. Waiting for completion."
+			);
+		}
+
+		await this.initializationPromise;
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
+	async initializeResources(): Promise<void> {
+		if (this.isLoading || this.isModelReady) {
+			console.log(
+				`Initialization skipped: isLoading=${this.isLoading}, isModelReady=${this.isModelReady}`
+			);
+			return;
+		}
+
+		this.isLoading = true;
+
+		// --- window.process を削除 ---
+		// @ts-ignore
+		if (typeof window !== "undefined" && window.process) {
+			console.log("Temporarily deleting window.process.");
+			// @ts-ignore
+			delete window.process;
+		}
+		// --------------------------
+
+		try {
+			console.log("Starting model and tokenizer initialization...");
+			new Notice("Loading AI model... This may take a while.");
+
+			// --- 動的に transformers を import ---
+			if (!this.transformers) {
+				console.log(
+					"Dynamically importing @huggingface/transformers..."
+				);
+				this.transformers = await import("@huggingface/transformers");
+				// 必要に応じて env 設定を行う
+				this.transformers.env.useBrowserCache = true;
+				console.log("Transformers module loaded.");
+			}
+			// ------------------------------------
+
+			// --- initializeModelAndTokenizer に import したモジュールを渡す ---
+			const { model, tokenizer } = await initializeModelAndTokenizer(
+				this.transformers.AutoModel,
+				this.transformers.AutoTokenizer
+			);
+			// ---------------------------------------------------------
+			this.model = model;
+			this.tokenizer = tokenizer;
+			this.isModelReady = true;
+			console.log("AI model and tokenizer loaded successfully!");
+			new Notice("AI model loaded successfully!");
+		} catch (error: any) {
+			console.error("Failed to initialize model or tokenizer:", error);
+			console.error("Detailed Error:", error.message, error.stack);
+			this.isModelReady = false;
+			this.transformers = null; // 失敗したらモジュール参照もクリア
+			throw error; // エラーを再スロー
+		} finally {
+			this.isLoading = false;
+			// --- window.process の復元は不要 (削除したままにする) ---
+			console.log("Initialization process finished.");
+		}
+	}
+
+	async vectorizeSentencesInternal(sentences: string[]): Promise<number[][]> {
+		// --- transformers モジュールと Tensor クラスの存在を確認 ---
+		if (
+			!this.isModelReady ||
+			!this.model ||
+			!this.tokenizer ||
+			!this.transformers ||
+			!this.transformers.Tensor
+		) {
+			throw new Error(
+				"Model, tokenizer, or transformers module is not initialized."
+			);
+		}
+		const Tensor = this.transformers.Tensor; // Tensor クラスへの参照を取得
+		// -----------------------------------------------------
+
+		try {
+			const inputs = this.tokenizer(sentences, {
+				padding: true,
+				truncation: true,
+			});
+			const outputs = await this.model(inputs);
+
+			let embeddingTensor: TensorType | undefined;
+			for (const key of EMBEDDING_KEYS) {
+				const potentialOutput = outputs[key];
+				// --- Tensor のインスタンスチェックを更新 ---
+				if (potentialOutput instanceof Tensor) {
+					embeddingTensor =
+						key === "last_hidden_state"
+							? potentialOutput.mean(1) // Mean pooling
+							: potentialOutput;
+					break;
+				}
+				// ------------------------------------
+			}
+
+			if (!embeddingTensor) {
+				console.error("Model output keys:", Object.keys(outputs));
+				throw new Error(
+					`Could not find any expected embedding tensor (${EMBEDDING_KEYS.join(
+						", "
+					)}) in model output.`
+				);
+			}
+
+			let resultVectorsNested = embeddingTensor.tolist();
+			let resultVectors: number[][] = resultVectorsNested as number[][];
+
+			if (
+				resultVectors.length > 0 &&
+				resultVectors[0].length > VECTOR_DIMENSION
+			) {
+				resultVectors = resultVectors.map((vector) =>
+					vector.slice(0, VECTOR_DIMENSION)
+				);
+			}
+
+			return resultVectors;
+		} catch (error) {
+			console.error("Error during internal vectorization:", error);
+			throw error;
+		}
+	}
+
+	onunload() {
+		console.log("Unloading vector plugin...");
+		this.model = null;
+		this.tokenizer = null;
+		this.isModelReady = false;
+		this.isLoading = false;
+		this.initializationPromise = null;
+		this.transformers = null; // モジュール参照もクリア
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
+// --- initializeModelAndTokenizer のシグネチャを変更 ---
+async function initializeModelAndTokenizer(
+	AutoModel: AutoModelType,
+	AutoTokenizer: AutoTokenizerType
+): Promise<{
+	model: PreTrainedModelType;
+	tokenizer: PreTrainedTokenizerType;
+}> {
+	try {
+		console.log("Starting model download/load...");
+		const model = await AutoModel.from_pretrained(
+			"cfsdwe/static-embedding-japanese-for-js",
+			{
+				progress_callback: (progress: any) => {},
+			}
+		);
+		console.log("Model loaded. Starting tokenizer download/load...");
+		const tokenizer = await AutoTokenizer.from_pretrained(
+			"cfsdwe/static-embedding-japanese-for-js",
+			{
+				progress_callback: (progress: any) => {},
+			}
+		);
+		console.log("Tokenizer loaded.");
 
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const { containerEl } = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName("Setting #1")
-			.setDesc("It's a secret")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter your secret")
-					.setValue(this.plugin.settings.mySetting)
-					.onChange(async (value) => {
-						this.plugin.settings.mySetting = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		return { model, tokenizer };
+	} catch (error) {
+		console.error(
+			"Model/Tokenizer Initialization Error in external function:",
+			error
+		);
+		throw error;
 	}
 }
