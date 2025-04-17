@@ -5,5 +5,5 @@
     "id": "transformer-test-plugin",
     "isDesktopOnly": false,
     "name": "Transformer test plugin",
-    "version": "1.0.1"
+    "version": "1.0.0"
 }
