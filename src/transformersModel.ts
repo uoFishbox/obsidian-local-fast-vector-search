@@ -18,7 +18,7 @@ export async function initializeTransformers(
 
 		const model = await AutoModel.from_pretrained(
 			"cfsdwe/static-embedding-japanese-for-js",
-			{ device: "webgpu", dtype: "q8" }
+			{ device: "wasm", dtype: "q8" }
 		);
 
 		const modelEndTime = performance.now();
