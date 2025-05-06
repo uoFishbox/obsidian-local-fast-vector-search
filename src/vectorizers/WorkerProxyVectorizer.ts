@@ -1,10 +1,7 @@
-// src/vectorizers/WorkerProxyVectorizer.ts
 import { IVectorizer } from "./IVectorizer";
 import { Notice } from "obsidian";
-// シンプルなデフォルトインポートに戻す
-import VectorizerWorker from "../vectorizer.worker?worker"; // Import with ?worker suffix for esbuild-plugin-inline-worker
+import VectorizerWorker from "../vectorizer.worker?worker";
 
-// Worker との通信メッセージ型 (例)
 interface WorkerRequest {
 	id: string;
 	type: "vectorize";
@@ -46,8 +43,6 @@ export class WorkerProxyVectorizer implements IVectorizer {
 						);
 						reject(new Error("Worker initialization failed."));
 					}
-					// リスナーを削除する必要はないかもしれないが、念のため
-					// this.worker.removeEventListener('message', checkInitialization);
 				} else if (data.type === "error" && !this.isWorkerInitialized) {
 					// 初期化中のエラー
 					console.error(
@@ -85,13 +80,8 @@ export class WorkerProxyVectorizer implements IVectorizer {
 				}
 			} else if (type === "status") {
 				console.log(`[Worker Status] ${payload}`);
-				// 必要に応じて Notice などでユーザーに通知
-				// new Notice(`Worker: ${payload}`, 1500); // 短時間表示
 			} else if (type === "progress") {
-				// console.log("[Worker Progress]", payload);
-				// 進捗表示の更新など
 			} else if (type === "initialized") {
-				// initializationPromise で処理されるのでここでは何もしない
 				console.log(
 					`WorkerProxy: Received initialization status: ${payload}`
 				);
@@ -153,7 +143,7 @@ export class WorkerProxyVectorizer implements IVectorizer {
 		});
 	}
 
-	// プラグインアンロード時に Worker を終了させるメソッド
+	// プラグインアンロード時に Worker を終了
 	terminate(): void {
 		console.log("WorkerProxy: Terminating worker...");
 		this.worker.terminate();

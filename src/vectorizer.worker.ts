@@ -3,7 +3,6 @@ import type {
 	PreTrainedTokenizerType,
 	TensorType,
 } from "./types";
-import type { env as EnvType } from "@huggingface/transformers";
 
 // @ts-ignore global self for Worker
 const worker = self as DedicatedWorkerGlobalScope;
@@ -26,7 +25,6 @@ if (
 let model: PreTrainedModelType | null = null;
 let tokenizer: PreTrainedTokenizerType | null = null;
 let Tensor: typeof import("@huggingface/transformers").Tensor | null = null;
-let transformersEnv: typeof EnvType | null = null; // env を保持
 let isInitialized = false;
 let isInitializing = false;
 const VECTOR_DIMENSION = 512; // ベクトルの次元数
@@ -41,7 +39,6 @@ async function initializeModelAndTokenizer() {
 		// 動的に import
 		const transformers = await import("@huggingface/transformers");
 		Tensor = transformers.Tensor;
-		transformersEnv = transformers.env;
 		const AutoModel = transformers.AutoModel;
 		const AutoTokenizer = transformers.AutoTokenizer;
 
@@ -112,10 +109,11 @@ async function vectorize(sentences: string[]): Promise<number[][]> {
 		let embeddingTensor: TensorType;
 
 		if (outputs.sentence_embedding instanceof Tensor) {
+			// sentence_embedding の場合
 			embeddingTensor = outputs.sentence_embedding;
 		} else if (outputs.last_hidden_state instanceof Tensor) {
+			// last_hidden_state で平均を計算する場合 (sentence_embedding がないモデルの場合) 現状使わない
 			const hidden = outputs.last_hidden_state;
-			// @ts-ignore attention_mask is valid input
 			const mask = new Tensor(inputs.attention_mask).unsqueeze(2);
 			const sum = hidden.mul(mask).sum(1);
 			const denom = mask.sum(1).clamp_(1e-9, Infinity);
@@ -139,12 +137,11 @@ async function vectorize(sentences: string[]): Promise<number[][]> {
 		embeddingTensor.dispose();
 		if (outputs.last_hidden_state instanceof Tensor)
 			outputs.last_hidden_state.dispose();
-		// 他のテンソルも必要に応じて dispose
 
 		return resultVectors;
 	} catch (error) {
 		console.error("[Worker] Vectorization error:", error);
-		throw error; // エラーを呼び出し元に伝える
+		throw error;
 	}
 }
 

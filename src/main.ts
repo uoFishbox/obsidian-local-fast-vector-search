@@ -1,13 +1,8 @@
-// src/main.ts (抜粋)
 import { Plugin, Notice, App, PluginSettingTab, Setting } from "obsidian";
-// import { initializeTransformers } from "./transformersModel"; // 不要に
 import { IVectorizer } from "./vectorizers/IVectorizer";
-import { createVectorizer } from "./vectorizers/VectorizerFactory";
+import { createTransformersVectorizer } from "./vectorizers/VectorizerFactory";
 import { CommandHandler } from "./commands";
-// WorkerProxyVectorizer の型情報と、それが持つ terminate メソッドを使うためにインポート
 import { WorkerProxyVectorizer } from "./vectorizers/WorkerProxyVectorizer";
-// ApiServiceVectorizer も型チェックのためにインポート (もし存在すれば)
-// import { ApiServiceVectorizer } from "./vectorizers/ApiServiceVectorizer";
 
 // --- PluginSettings Interface ---
 interface PluginSettings {
@@ -27,17 +22,15 @@ export default class MyVectorPlugin extends Plugin {
 	private isWorkerReady = false;
 
 	async onload() {
-		// --- 設定の読み込み ---
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
 			await this.loadData()
 		);
 
-		// --- 設定タブの追加 ---
 		this.addSettingTab(new VectorizerSettingTab(this.app, this));
 
-		// --- レイアウト準備完了後にバックグラウンドで初期化を開始 ---
+		// レイアウト準備完了後にバックグラウンドで初期化を開始
 		this.app.workspace.onLayoutReady(async () => {
 			console.log(
 				"Obsidian layout ready. Triggering background initialization."
@@ -56,7 +49,6 @@ export default class MyVectorPlugin extends Plugin {
 			);
 		});
 
-		// --- コマンドの追加 ---
 		this.addCommand({
 			id: "vectorize-current-note",
 			name: "Vectorize current note (Worker)",
@@ -125,7 +117,7 @@ export default class MyVectorPlugin extends Plugin {
 		new Notice("Initializing vectorizer...", 3000); // 少し長めに表示
 
 		try {
-			this.vectorizer = createVectorizer(this.settings.provider);
+			this.vectorizer = createTransformersVectorizer();
 
 			if (this.vectorizer instanceof WorkerProxyVectorizer) {
 				console.log(
@@ -136,8 +128,6 @@ export default class MyVectorPlugin extends Plugin {
 				console.log("Vectorizer Worker is ready.");
 				new Notice("Vectorizer worker ready!", 2000);
 			} else {
-				// サポートされていない Vectorizer タイプ、または provider が 'ollama' などで
-				// 対応する Vectorizer クラスがまだ実装されていない場合
 				console.warn(
 					`Vectorizer for provider '${this.settings.provider}' might be ready or not implemented.`
 				);
@@ -163,10 +153,8 @@ export default class MyVectorPlugin extends Plugin {
 			this.isWorkerReady = false; // 失敗したらフラグを false に
 			this.vectorizer = null; // リソースをクリア
 			this.commandHandler = null;
-			// エラーを再スローして ensureWorkerInitialized や呼び出し元で捕捉できるようにする
 			throw error;
 		} finally {
-			// isLoading = false; // isLoading は使わない
 			console.log("Resource initialization attempt finished.");
 		}
 	}
@@ -206,16 +194,11 @@ class VectorizerSettingTab extends PluginSettingTab {
 			)
 			.addDropdown((dropdown) =>
 				dropdown
-					.addOption("transformer", "Transformer.js (Local Worker)")
+					.addOption("transformers", "Transformers.js (in Obsidian)")
 					.setValue(this.plugin.settings.provider)
 					.onChange(async (value) => {
 						this.plugin.settings.provider = value;
 						await this.plugin.saveData(this.plugin.settings);
-						// 設定変更後に再初期化を促すメッセージ
-						new Notice(
-							"Provider changed. Please reload the plugin for changes to take effect.",
-							5000
-						);
 						// TODO: 可能であれば、ここで動的に再初期化するロジックを追加
 					})
 			);
