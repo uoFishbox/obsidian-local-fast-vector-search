@@ -215,6 +215,9 @@ export class PGliteProvider {
 			throw new Error("Resource cache paths not set.");
 		}
 
+		//@ts-ignore
+		window.process = undefined; // Ensure process is undefined
+
 		const resources = {
 			fsBundle: {
 				url: `https://unpkg.com/@electric-sql/pglite@${PGLITE_VERSION}/dist/postgres.data`,
