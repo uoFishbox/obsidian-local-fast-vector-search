@@ -1,14 +1,21 @@
-import { Plugin, normalizePath } from "obsidian";
+import { Plugin, normalizePath, requestUrl } from "obsidian";
 import { PGlite } from "@electric-sql/pglite";
-import { pgliteResources } from "../database/modules/pglite-resources";
+
+const PGLITE_VERSION = "0.2.14";
 
 export class PGliteProvider {
 	private plugin: Plugin;
 	private dbName: string;
 	private pgClient: PGlite | null = null;
 	private isInitialized: boolean = false;
-	private dbPath: string;
+	private dbFilePath: string;
 	private relaxedDurability: boolean;
+
+	private resourceCachePaths: {
+		fsBundle: string;
+		wasmModule: string;
+		vectorExtensionBundle: string;
+	} | null = null;
 
 	constructor(
 		plugin: Plugin,
@@ -19,31 +26,56 @@ export class PGliteProvider {
 		this.dbName = dbName;
 		this.relaxedDurability = relaxedDurability;
 
-		this.dbPath = normalizePath(
+		// データベースファイル自体のパス
+		this.dbFilePath = normalizePath(
 			`${this.plugin.manifest.dir}/${this.dbName}.db`
 		);
-		console.log("Database path set to:", this.dbPath);
+		console.log("Database file path set to:", this.dbFilePath);
+
+		const cacheDir = normalizePath(
+			`${this.plugin.manifest.dir}/pglite-cache`
+		);
+		this.resourceCachePaths = {
+			fsBundle: normalizePath(
+				`${cacheDir}/pglite-${PGLITE_VERSION}-postgres.data`
+			),
+			wasmModule: normalizePath(
+				`${cacheDir}/pglite-${PGLITE_VERSION}-postgres.wasm`
+			),
+			vectorExtensionBundle: normalizePath(
+				`${cacheDir}/pglite-${PGLITE_VERSION}-vector.tar.gz`
+			),
+		};
+		console.log("PGlite resource cache directory set to:", cacheDir);
 	}
 
 	async initialize(): Promise<void> {
+		if (this.isInitialized && this.pgClient) {
+			console.log("PGliteProvider already initialized.");
+			return;
+		}
+
 		try {
+			// リソースのロード（キャッシュからの読み込みまたはダウンロード）
 			const { fsBundle, wasmModule, vectorExtensionBundlePath } =
 				await this.loadPGliteResources();
 
-			// Check if we have a saved database file
+			// データベースファイルが存在するかチェック
 			const databaseFileExists =
-				await this.plugin.app.vault.adapter.exists(this.dbPath);
+				await this.plugin.app.vault.adapter.exists(this.dbFilePath);
 
 			if (databaseFileExists) {
-				// Load existing database
-				console.log("Loading existing database from:", this.dbPath);
+				// 既存データベースのロード
+				console.log("Loading existing database from:", this.dbFilePath);
 				const fileBuffer =
-					await this.plugin.app.vault.adapter.readBinary(this.dbPath);
+					await this.plugin.app.vault.adapter.readBinary(
+						this.dbFilePath
+					);
 				const fileBlob = new Blob([fileBuffer], {
 					type: "application/x-gzip",
 				});
 
-				// Create PGlite instance with existing data
+				// PGliteインスタンスの作成（既存データ付き）
 				this.pgClient = await this.createPGliteInstance({
 					loadDataDir: fileBlob,
 					fsBundle,
@@ -51,7 +83,7 @@ export class PGliteProvider {
 					vectorExtensionBundlePath,
 				});
 			} else {
-				// Create new database
+				// 新規データベースの作成
 				console.log("Creating new database");
 				this.pgClient = await this.createPGliteInstance({
 					fsBundle,
@@ -63,16 +95,26 @@ export class PGliteProvider {
 			this.isInitialized = true;
 			console.log("PGlite initialized successfully");
 
-			// Make sure the directory exists
-			const dirPath = this.dbPath.substring(
+			// データベースファイルとキャッシュファイルのディレクトリが存在することを確認
+			const dbDir = this.dbFilePath.substring(
 				0,
-				this.dbPath.lastIndexOf("/")
+				this.dbFilePath.lastIndexOf("/")
 			);
-			if (!(await this.plugin.app.vault.adapter.exists(dirPath))) {
-				await this.plugin.app.vault.adapter.mkdir(dirPath);
+			if (!(await this.plugin.app.vault.adapter.exists(dbDir))) {
+				await this.plugin.app.vault.adapter.mkdir(dbDir);
+			}
+			const cacheDir = this.resourceCachePaths!.fsBundle.substring(
+				0,
+				this.resourceCachePaths!.fsBundle.lastIndexOf("/")
+			);
+			if (!(await this.plugin.app.vault.adapter.exists(cacheDir))) {
+				await this.plugin.app.vault.adapter.mkdir(cacheDir);
 			}
 		} catch (error) {
 			console.error("Error initializing PGlite:", error);
+			// 初期化失敗時は状態をリセット
+			this.pgClient = null;
+			this.isInitialized = false;
 			throw new Error(`Failed to initialize PGlite: ${error}`);
 		}
 	}
@@ -95,10 +137,10 @@ export class PGliteProvider {
 		}
 
 		try {
-			console.log("Saving database to:", this.dbPath);
+			console.log("Saving database to:", this.dbFilePath);
 			const blob: Blob = await this.pgClient.dumpDataDir("gzip");
 			await this.plugin.app.vault.adapter.writeBinary(
-				this.dbPath,
+				this.dbFilePath,
 				Buffer.from(await blob.arrayBuffer())
 			);
 			console.log("Database saved successfully");
@@ -126,23 +168,22 @@ export class PGliteProvider {
 	}
 
 	async deleteDatabaseFile(): Promise<void> {
-		if (await this.plugin.app.vault.adapter.exists(this.dbPath)) {
+		if (await this.plugin.app.vault.adapter.exists(this.dbFilePath)) {
 			try {
-				await this.plugin.app.vault.adapter.remove(this.dbPath);
-				console.log(`Database file deleted: ${this.dbPath}`);
-				// Reset initialization status as the DB file is gone
+				await this.plugin.app.vault.adapter.remove(this.dbFilePath);
+				console.log(`Database file deleted: ${this.dbFilePath}`);
 				this.isInitialized = false;
 				this.pgClient = null;
 			} catch (error) {
 				console.error(
-					`Error deleting database file ${this.dbPath}:`,
+					`Error deleting database file ${this.dbFilePath}:`,
 					error
 				);
 				throw error;
 			}
 		} else {
 			console.log(
-				`Database file not found, no need to delete: ${this.dbPath}`
+				`Database file not found, no need to delete: ${this.dbFilePath}`
 			);
 		}
 	}
@@ -170,40 +211,102 @@ export class PGliteProvider {
 		wasmModule: WebAssembly.Module;
 		vectorExtensionBundlePath: URL;
 	}> {
-		try {
-			// Convert base64 to binary data
-			const wasmBinary = Buffer.from(
-				pgliteResources.wasmBase64,
-				"base64"
-			);
-			const dataBinary = Buffer.from(
-				pgliteResources.dataBase64,
-				"base64"
-			);
-			const vectorBinary = Buffer.from(
-				pgliteResources.vectorBase64,
-				"base64"
-			);
-
-			// Create blobs from binary data
-			const fsBundle = new Blob([dataBinary], {
-				type: "application/octet-stream",
-			});
-			const wasmModule = await WebAssembly.compile(wasmBinary);
-
-			// Create a blob URL for the vector extension
-			const vectorBlob = new Blob([vectorBinary], {
-				type: "application/gzip",
-			});
-			const vectorExtensionBundlePath = URL.createObjectURL(vectorBlob);
-			return {
-				fsBundle,
-				wasmModule,
-				vectorExtensionBundlePath: new URL(vectorExtensionBundlePath),
-			};
-		} catch (error) {
-			console.error("Error loading PGlite resources:", error);
-			throw error;
+		if (!this.resourceCachePaths) {
+			throw new Error("Resource cache paths not set.");
 		}
+
+		const resources = {
+			fsBundle: {
+				url: `https://unpkg.com/@electric-sql/pglite@${PGLITE_VERSION}/dist/postgres.data`,
+				path: this.resourceCachePaths.fsBundle,
+				type: "application/octet-stream",
+				process: (buffer: ArrayBuffer) =>
+					new Blob([buffer], { type: "application/octet-stream" }),
+			},
+			wasmModule: {
+				url: `https://unpkg.com/@electric-sql/pglite@${PGLITE_VERSION}/dist/postgres.wasm`,
+				path: this.resourceCachePaths.wasmModule,
+				type: "application/wasm",
+				process: (buffer: ArrayBuffer) => WebAssembly.compile(buffer),
+			},
+			vectorExtensionBundle: {
+				url: `https://unpkg.com/@electric-sql/pglite@${PGLITE_VERSION}/dist/vector.tar.gz`,
+				path: this.resourceCachePaths.vectorExtensionBundle,
+				type: "application/gzip",
+				process: (buffer: ArrayBuffer) => {
+					const blob = new Blob([buffer], {
+						type: "application/gzip",
+					});
+					return new URL(URL.createObjectURL(blob));
+				},
+			},
+		};
+
+		const loadedResources: any = {};
+
+		for (const [key, resourceInfo] of Object.entries(resources)) {
+			console.log(
+				`Attempting to load ${key} from cache: ${resourceInfo.path}`
+			);
+			try {
+				const fileExists = await this.plugin.app.vault.adapter.exists(
+					resourceInfo.path
+				);
+
+				if (fileExists) {
+					console.log(`${key} found in cache. Reading...`);
+					const buffer =
+						await this.plugin.app.vault.adapter.readBinary(
+							resourceInfo.path
+						);
+					loadedResources[key] = await resourceInfo.process(buffer);
+					console.log(`${key} loaded from cache.`);
+				} else {
+					console.log(
+						`${key} not found in cache. Downloading from ${resourceInfo.url}...`
+					);
+					const response = await requestUrl(resourceInfo.url);
+
+					if (response.status !== 200) {
+						throw new Error(
+							`Failed to download ${key}: Status ${response.status}`
+						);
+					}
+
+					const buffer = response.arrayBuffer;
+
+					const cacheDir = resourceInfo.path.substring(
+						0,
+						resourceInfo.path.lastIndexOf("/")
+					);
+					if (
+						!(await this.plugin.app.vault.adapter.exists(cacheDir))
+					) {
+						await this.plugin.app.vault.adapter.mkdir(cacheDir);
+					}
+
+					console.log(`Saving ${key} to cache: ${resourceInfo.path}`);
+					await this.plugin.app.vault.adapter.writeBinary(
+						resourceInfo.path,
+						Buffer.from(buffer)
+					);
+					console.log(`${key} saved to cache.`);
+
+					loadedResources[key] = await resourceInfo.process(buffer);
+					console.log(`${key} processed after download.`);
+				}
+			} catch (error) {
+				console.error(`Error loading or caching ${key}:`, error);
+				throw new Error(
+					`Failed to load or cache PGlite resource "${key}": ${error}`
+				);
+			}
+		}
+
+		return {
+			fsBundle: loadedResources.fsBundle,
+			wasmModule: loadedResources.wasmModule,
+			vectorExtensionBundlePath: loadedResources.vectorExtensionBundle,
+		};
 	}
 }

@@ -167,7 +167,7 @@ export class PGliteVectorStore {
 
 	async upsertVectors(
 		items: VectorItem[],
-		batchSize: number = 500
+		batchSize: number = 200
 	): Promise<void> {
 		if (items.length === 0) {
 			console.log("No vectors to upsert.");
