@@ -1,161 +1,264 @@
-import { Editor, Notice, App } from "obsidian";
+import { Notice, App } from "obsidian";
 import type { IVectorizer } from "./vectorizers/IVectorizer";
-import { splitTextToSentences } from "./utils";
+import { TextChunker } from "./chunkers/TextChunker";
+import type {
+	PGliteVectorStore,
+	VectorItem,
+	SimilarityResultItem,
+} from "./storage/PGliteVectorStore";
 
 export class CommandHandler {
 	private app: App;
 	private vectorizer: IVectorizer;
+	private vectorStore: PGliteVectorStore;
+	private textChunker: TextChunker;
 
-	constructor(app: App, vectorizer: IVectorizer) {
+	constructor(
+		app: App,
+		vectorizer: IVectorizer,
+		vectorStore: PGliteVectorStore
+	) {
 		this.app = app;
 		this.vectorizer = vectorizer;
+		this.vectorStore = vectorStore;
+		this.textChunker = new TextChunker({});
 	}
 
-	async vectorizeCurrentNote(editor: Editor): Promise<void> {
-		const text = editor.getValue();
-		const sentences = splitTextToSentences(text);
+	private _showNotice(
+		message: string,
+		timeout: number = 0,
+		existingNotice?: Notice
+	): Notice {
+		if (existingNotice) {
+			existingNotice.setMessage(message);
+			if (timeout > 0) {
+				setTimeout(() => existingNotice.hide(), timeout);
+			}
+			return existingNotice;
+		}
+		const newNotice = new Notice(message, timeout);
+		return newNotice;
+	}
 
-		if (sentences.length === 0) {
-			new Notice("No text found to vectorize.");
+	private async _generateVectorItemsFromFileContent(
+		filePath: string,
+		content: string
+	): Promise<VectorItem[]> {
+		const chunkInfos = this.textChunker.chunkText(content);
+		if (chunkInfos.length === 0) {
+			return [];
+		}
+
+		const sentences = chunkInfos.map((chunk) => chunk.chunk);
+		const vectors = await this.vectorizer.vectorizeSentences(sentences);
+
+		return chunkInfos
+			.map((chunkInfo, i) => {
+				if (vectors[i]) {
+					return {
+						filePath: filePath,
+						chunkOffsetStart: chunkInfo.metadata.startPosition,
+						chunkOffsetEnd: chunkInfo.metadata.endPosition,
+						vector: vectors[i],
+					};
+				}
+				return null;
+			})
+			.filter((item): item is VectorItem => item !== null);
+	}
+
+	private async _saveVectorItemsToStore(
+		itemsToInsert: VectorItem[]
+	): Promise<number> {
+		if (itemsToInsert.length === 0) {
+			return 0;
+		}
+		await this.vectorStore.upsertVectors(itemsToInsert);
+		await this.vectorStore.save();
+		return itemsToInsert.length;
+	}
+
+	async vectorizeAllNotes(): Promise<void> {
+		const files = this.app.vault.getMarkdownFiles();
+		if (files.length === 0) {
+			this._showNotice("No markdown files found to vectorize.", 3000);
 			return;
 		}
 
-		const notice = new Notice(
-			`Vectorizing ${sentences.length} sentences (using worker)...`,
-			0
-		); // 0で手動で消すまで表示
-		try {
-			const startTime = performance.now();
-			// vectorizeSentences は WorkerProxyVectorizer を介して Worker に処理を依頼
-			const vectors = await this.vectorizer.vectorizeSentences(sentences);
-			const endTime = performance.now();
-			const processingTime = (endTime - startTime) / 1000;
-
-			notice.setMessage(
-				// Noticeの内容を更新
-				`Vectorization complete! ${
-					vectors.length
-				} vectors generated in ${processingTime.toFixed(2)} seconds.`
-			);
-			console.log(
-				`Vectorization completed in ${processingTime.toFixed(
-					2
-				)} seconds.`
-			);
-			console.log("Generated vectors:", vectors);
-			// Noticeを数秒後に消す
-			setTimeout(() => notice.hide(), 5000);
-		} catch (error) {
-			console.error("Vectorization failed:", error);
-			notice.setMessage(
-				"Vectorization failed. Check console for details."
-			);
-			setTimeout(() => notice.hide(), 5000);
-		}
-	}
-
-	async vectorizeAllNotes(): Promise<{ file: string; vector: number[] }[]> {
-		const files = this.app.vault.getMarkdownFiles();
-		if (files.length === 0) {
-			new Notice("No markdown files found to vectorize.");
-			return [];
-		}
-
-		const allItems: { file: string; sentence: string }[] = [];
-		const notice = new Notice("Reading all markdown files...", 0);
-		try {
-			for (const file of files) {
-				const content = await this.app.vault.cachedRead(file);
-				splitTextToSentences(content).forEach((s) =>
-					allItems.push({ file: file.path, sentence: s })
-				);
-			}
-		} catch (error) {
-			console.error("Error reading files:", error);
-			notice.setMessage("Error reading files. Check console.");
-			setTimeout(() => notice.hide(), 5000);
-			return [];
-		}
-
-		if (allItems.length === 0) {
-			notice.setMessage("No sentences found in markdown files.");
-			setTimeout(() => notice.hide(), 3000);
-			return [];
-		}
-
-		notice.setMessage(
-			`Starting vectorization for ${allItems.length} sentences (batched, using worker)...`
+		let vectorizeNotice = this._showNotice(
+			"Starting vectorization for all notes..."
 		);
 		const startAll = performance.now();
-
-		const batchSize = 128; // Workerに送るバッチサイズ
-		const results: { file: string; vector: number[] }[] = [];
-		let processedCount = 0;
+		let totalVectorsProcessed = 0;
+		const allItemsToInsert: VectorItem[] = [];
 
 		try {
-			for (let i = 0; i < allItems.length; i += batchSize) {
-				const batchItems = allItems.slice(i, i + batchSize);
-				const batchSentences = batchItems.map((x) => x.sentence);
-
-				const batchStartTime = performance.now();
-				// Worker にバッチ処理を依頼
-				const vs = await this.vectorizer.vectorizeSentences(
-					batchSentences
-				);
-				const batchEndTime = performance.now();
-				const batchTime = (batchEndTime - batchStartTime) / 1000;
-
-				vs.forEach((vec, idx) => {
-					results.push({
-						file: batchItems[idx].file,
-						vector: vec,
-					});
-				});
-
-				processedCount = Math.min(i + batchSize, allItems.length);
+			for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+				const file = files[fileIndex];
 				const progressPercent = (
-					(processedCount / allItems.length) *
+					((fileIndex + 1) / files.length) *
 					100
 				).toFixed(1);
-				const estimatedTotalTime =
-					(((performance.now() - startAll) / processedCount) *
-						allItems.length) /
-					1000;
+				let noticeMessage = `Processing file ${fileIndex + 1}/${
+					files.length
+				} (${progressPercent}%): ${file.basename}`;
 
+				try {
+					const content = await this.app.vault.cachedRead(file);
+					if (!content.trim()) {
+						console.log(`Skipping empty file: ${file.path}`);
+						noticeMessage += " (skipped empty)";
+						this._showNotice(noticeMessage, 0, vectorizeNotice);
+						continue;
+					}
+					const itemsFromFile =
+						await this._generateVectorItemsFromFileContent(
+							file.path,
+							content
+						);
+					allItemsToInsert.push(...itemsFromFile);
+					this._showNotice(noticeMessage, 0, vectorizeNotice);
+				} catch (fileError) {
+					console.error(
+						`Failed to process file ${file.path}:`,
+						fileError
+					);
+					this._showNotice(
+						`Skipping file ${file.basename} due to error. Check console.`,
+						3000
+					);
+					noticeMessage += " (skipped due to error)";
+					this._showNotice(noticeMessage, 0, vectorizeNotice);
+					continue;
+				}
+			}
+
+			if (allItemsToInsert.length > 0) {
+				this._showNotice(
+					`Saving ${allItemsToInsert.length} total vectors from all notes...`,
+					0,
+					vectorizeNotice
+				);
+				totalVectorsProcessed = await this._saveVectorItemsToStore(
+					allItemsToInsert
+				);
 				console.log(
-					`Batch ${i / batchSize + 1}: Processed ${processedCount}/${
-						allItems.length
-					} sentences (${progressPercent}%) in ${batchTime.toFixed(
-						2
-					)}s. Total vectors: ${
-						results.length
-					}. Est. total time: ${estimatedTotalTime.toFixed(1)}s`
+					`Upserted ${totalVectorsProcessed} vectors in batch.`
 				);
-				notice.setMessage(
-					`Vectorizing... ${processedCount}/${allItems.length} (${progressPercent}%)`
+			} else {
+				this._showNotice(
+					"No new vectors to save from any notes.",
+					0,
+					vectorizeNotice
 				);
-
-				// メインスレッドがブロックされないように少し待機 (オプション)
-				// await new Promise(resolve => setTimeout(resolve, 10));
 			}
 
 			const totalTime = (performance.now() - startAll) / 1000;
-			notice.setMessage(
-				`Vectorization finished! ${
-					results.length
-				} vectors generated in ${totalTime.toFixed(2)}s.`
+			this._showNotice(
+				`Vectorization finished! ${totalVectorsProcessed} vectors saved in ${totalTime.toFixed(
+					2
+				)}s.`,
+				5000,
+				vectorizeNotice
 			);
-			console.log(`All notes vectorized in ${totalTime.toFixed(2)}s`);
-			setTimeout(() => notice.hide(), 5000);
+			console.log(
+				`All notes vectorized and saved in ${totalTime.toFixed(
+					2
+				)}s. Total vectors processed: ${totalVectorsProcessed}`
+			);
+		} catch (error) {
+			console.error(
+				"Vectorization of all notes failed unexpectedly:",
+				error
+			);
+			this._showNotice(
+				"Vectorization failed during processing. Check console.",
+				5000,
+				vectorizeNotice
+			);
+		}
+	}
+
+	async rebuildAllIndexes(): Promise<void> {
+		let rebuildStatusNotice = this._showNotice(
+			"Rebuilding all indexes... This may take a while."
+		);
+
+		try {
+			this._showNotice(
+				"Rebuilding storage and clearing old index data...",
+				0,
+				rebuildStatusNotice
+			);
+			console.log(
+				"Rebuilding index: Calling vectorStore.rebuildStorage()."
+			);
+			await this.vectorStore.rebuildStorage();
+			console.log("Storage rebuild completed by vectorStore.");
+
+			this._showNotice(
+				"Storage cleared. Re-vectorizing all notes...",
+				0,
+				rebuildStatusNotice
+			);
+
+			rebuildStatusNotice.hide();
+			await this.vectorizeAllNotes();
+
+			console.log(
+				"Index rebuild process completed successfully by vectorizeAllNotes."
+			);
+		} catch (error: any) {
+			console.error("Failed to rebuild all indexes:", error);
+			this._showNotice(
+				`Index rebuild failed: ${
+					error.message || "Unknown error"
+				}. Check console.`,
+				7000,
+				rebuildStatusNotice
+			);
+		}
+	}
+
+	async searchSimilarNotes(
+		query: string,
+		limit: number = 10
+	): Promise<SimilarityResultItem[]> {
+		if (!query.trim()) {
+			this._showNotice("Query cannot be empty.", 3000);
+			return [];
+		}
+
+		try {
+			const queryVectorArray = await this.vectorizer.vectorizeSentences([
+				query,
+			]);
+			if (
+				!queryVectorArray ||
+				queryVectorArray.length === 0 ||
+				!queryVectorArray[0]
+			) {
+				throw new Error(
+					"Failed to vectorize query. The vectorizer might not be ready, the query could be invalid, or the resulting vector is empty."
+				);
+			}
+			const queryVector = queryVectorArray[0];
+
+			const results = await this.vectorStore.searchSimilar(
+				queryVector,
+				limit
+			);
 
 			return results;
 		} catch (error) {
-			console.error("Vectorization of all notes failed:", error);
-			notice.setMessage(
-				"Vectorization failed during batch processing. Check console."
+			console.error("Error during similarity search:", error);
+			this._showNotice(
+				`Search failed: ${
+					error instanceof Error ? error.message : "Unknown error"
+				}. Check console.`,
+				5000
 			);
-			setTimeout(() => notice.hide(), 5000);
-			return results; // 途中までの結果を返すか、空配列を返すか
+			throw error;
 		}
 	}
 }

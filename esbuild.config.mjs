@@ -3,6 +3,7 @@ import esbuild from "esbuild";
 import process from "process";
 import builtins from "builtin-modules";
 import inlineWorkerPlugin from "esbuild-plugin-inline-worker";
+import path from "path";
 
 const banner =
 `/*
@@ -45,6 +46,13 @@ const context = await esbuild.context({
 	treeShaking: true,
 	outfile: "main.js",
 	minify: prod,
+		define: {
+		// Prevent PGlite from detecting a Node environment
+		'process': '{}',
+		'global': 'window',
+		'import.meta.url': 'import_meta_url',
+	},
+	inject: [path.resolve('import-meta-url-shim.js')],
 });
 
 if (prod) {

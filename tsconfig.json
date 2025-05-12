@@ -6,7 +6,8 @@
     "module": "ESNext",
     "target": "ES2020", 
     "types": [
-      "obsidian-typings"
+      "obsidian-typings",
+      "jest"
     ],
     "allowJs": true,
     "noImplicitAny": true,

@@ -1,17 +1,22 @@
+// src/main.ts
 import { Plugin, Notice, App, PluginSettingTab, Setting } from "obsidian";
 import { IVectorizer } from "./vectorizers/IVectorizer";
 import { createTransformersVectorizer } from "./vectorizers/VectorizerFactory";
 import { CommandHandler } from "./commands";
 import { WorkerProxyVectorizer } from "./vectorizers/WorkerProxyVectorizer";
+import { PGliteProvider } from "./storage/PGliteProvider";
+import { PGliteVectorStore } from "./storage/PGliteVectorStore";
+import { SearchModal } from "./ui/SearchModal";
+const EMBEDDING_DIMENSION = 512;
 
-// --- PluginSettings Interface ---
 interface PluginSettings {
 	provider: string;
+	databaseName: string;
 }
 
-// --- Default Settings ---
 const DEFAULT_SETTINGS: PluginSettings = {
 	provider: "transformer",
+	databaseName: "embeddings",
 };
 
 export default class MyVectorPlugin extends Plugin {
@@ -20,6 +25,10 @@ export default class MyVectorPlugin extends Plugin {
 	vectorizer: IVectorizer | null = null;
 	commandHandler: CommandHandler | null = null;
 	private isWorkerReady = false;
+
+	pgProvider: PGliteProvider | null = null;
+	vectorStore: PGliteVectorStore | null = null;
+	private isDbReady = false;
 
 	async onload() {
 		this.settings = Object.assign(
@@ -30,7 +39,6 @@ export default class MyVectorPlugin extends Plugin {
 
 		this.addSettingTab(new VectorizerSettingTab(this.app, this));
 
-		// レイアウト準備完了後にバックグラウンドで初期化を開始
 		this.app.workspace.onLayoutReady(async () => {
 			console.log(
 				"Obsidian layout ready. Triggering background initialization."
@@ -42,41 +50,26 @@ export default class MyVectorPlugin extends Plugin {
 						error
 					);
 					new Notice(
-						"Failed to initialize vectorizer worker. Check console."
+						"Failed to initialize resources. Check console."
 					);
 					this.isWorkerReady = false;
+					this.isDbReady = false;
 				}
 			);
 		});
 
 		this.addCommand({
-			id: "vectorize-current-note",
-			name: "Vectorize current note (Worker)",
-			editorCallback: async (editor) => {
-				try {
-					await this.ensureWorkerInitialized();
-				} catch (error) {
-					console.error("Worker initialization check failed:", error);
-					new Notice("Vectorizer is not ready. Check console.");
-					return;
-				}
-				if (!this.commandHandler) {
-					new Notice("Command handler not ready.");
-					return;
-				}
-				await this.commandHandler.vectorizeCurrentNote(editor);
-			},
-		});
-
-		this.addCommand({
 			id: "vectorize-all-notes",
-			name: "Vectorize all notes (Worker)",
+			name: "Vectorize all notes (Worker & Save)",
 			callback: async () => {
 				try {
-					await this.ensureWorkerInitialized();
+					await this.ensureResourcesInitialized();
 				} catch (error) {
-					console.error("Worker initialization check failed:", error);
-					new Notice("Vectorizer is not ready. Check console.");
+					console.error(
+						"Resource initialization check failed:",
+						error
+					);
+					new Notice("Resources are not ready. Check console.");
 					return;
 				}
 				if (!this.commandHandler) {
@@ -86,10 +79,70 @@ export default class MyVectorPlugin extends Plugin {
 				await this.commandHandler.vectorizeAllNotes();
 			},
 		});
+
+		this.addCommand({
+			id: "search-similar-notes",
+			name: "Search similar notes",
+			callback: async () => {
+				try {
+					await this.ensureResourcesInitialized();
+				} catch (error) {
+					console.error(
+						"Resource initialization check failed for search:",
+						error
+					);
+					new Notice(
+						"Resources are not ready for search. Check console."
+					);
+					return;
+				}
+				if (!this.commandHandler) {
+					new Notice(
+						"Command handler not ready for search. Please try reloading the plugin."
+					);
+					return;
+				}
+
+				new SearchModal(this.app, this.commandHandler).open();
+			},
+		});
+
+		this.addCommand({
+			id: "rebuild-all-indexes",
+			name: "Rebuild all indexes (Clear and re-vectorize all notes)",
+			callback: async () => {
+				try {
+					await this.ensureResourcesInitialized();
+				} catch (error) {
+					console.error(
+						"Resource initialization check failed for rebuild:",
+						error
+					);
+					new Notice(
+						"Resources are not ready for rebuild. Check console."
+					);
+					return;
+				}
+				if (!this.commandHandler) {
+					new Notice(
+						"Command handler not ready for rebuild. Please try reloading the plugin."
+					);
+					return;
+				}
+
+				await this.commandHandler.rebuildAllIndexes();
+			},
+		});
 	}
 
-	async ensureWorkerInitialized(): Promise<void> {
-		if (this.isWorkerReady && this.vectorizer && this.commandHandler) {
+	async ensureResourcesInitialized(): Promise<void> {
+		if (
+			this.isWorkerReady &&
+			this.isDbReady &&
+			this.vectorizer &&
+			this.commandHandler &&
+			this.vectorStore
+		) {
 			return;
 		}
 
@@ -98,60 +151,121 @@ export default class MyVectorPlugin extends Plugin {
 			this.initializationPromise = this.initializeResources();
 		}
 
-		console.log("Waiting for vectorizer initialization to complete...");
+		console.log("Waiting for resource initialization to complete...");
 		await this.initializationPromise;
-		if (!this.isWorkerReady) {
-			throw new Error("Vectorizer failed to initialize.");
+		if (!this.isWorkerReady || !this.isDbReady) {
+			throw new Error("Resources failed to initialize.");
 		}
-		console.log("Vectorizer initialization confirmed.");
+		console.log("Resource initialization confirmed.");
 	}
+
 	async initializeResources(): Promise<void> {
-		if (this.isWorkerReady) {
+		if (this.isWorkerReady && this.isDbReady) {
 			console.log("Resources already initialized.");
 			return;
 		}
 
 		console.log(
-			"Initializing resources (Vectorizer and Command Handler)..."
+			"Initializing resources (Vectorizer, Database, Command Handler)..."
 		);
-		new Notice("Initializing vectorizer...", 3000); // 少し長めに表示
+		const initNotice = new Notice("Initializing resources...", 0);
 
 		try {
-			this.vectorizer = createTransformersVectorizer();
-
-			if (this.vectorizer instanceof WorkerProxyVectorizer) {
-				console.log(
-					"Waiting for WorkerProxyVectorizer initialization..."
-				);
-				await this.vectorizer.ensureInitialized();
-				this.isWorkerReady = true;
-				console.log("Vectorizer Worker is ready.");
-				new Notice("Vectorizer worker ready!", 2000);
-			} else {
-				console.warn(
-					`Vectorizer for provider '${this.settings.provider}' might be ready or not implemented.`
-				);
-				// ここでは一旦 true にするが、実際の API Vectorizer 実装で調整が必要
-				this.isWorkerReady = true;
-				// throw new Error("Unsupported vectorizer type or provider.");
+			// 1. Vectorizer (Worker) の初期化
+			if (!this.isWorkerReady) {
+				initNotice.setMessage("Initializing vectorizer worker...");
+				this.vectorizer = createTransformersVectorizer();
+				if (this.vectorizer instanceof WorkerProxyVectorizer) {
+					console.log(
+						"Waiting for WorkerProxyVectorizer initialization..."
+					);
+					await this.vectorizer.ensureInitialized();
+					this.isWorkerReady = true;
+					console.log("Vectorizer Worker is ready.");
+				} else {
+					this.isWorkerReady = true;
+				}
 			}
 
-			// CommandHandler を初期化 (vectorizer が準備できた後)
-			if (this.isWorkerReady && this.vectorizer) {
+			// 2. PGliteProvider と PGliteVectorStore の初期化
+			if (!this.isDbReady && this.isWorkerReady) {
+				initNotice.setMessage("Initializing database...");
+				this.pgProvider = new PGliteProvider(
+					this,
+					this.settings.databaseName,
+					true
+				);
+				await this.pgProvider.initialize();
+				console.log("PGliteProvider initialized.");
+
+				this.vectorStore = new PGliteVectorStore(
+					this.pgProvider,
+					EMBEDDING_DIMENSION
+				);
+				const tableInfo = await this.vectorStore.checkTableExists();
+				if (
+					!tableInfo.exists ||
+					tableInfo.dimensions !== EMBEDDING_DIMENSION
+				) {
+					if (
+						tableInfo.exists &&
+						tableInfo.dimensions !== EMBEDDING_DIMENSION
+					) {
+						console.warn(
+							`Vector table dimensions mismatch. Expected ${EMBEDDING_DIMENSION}, got ${tableInfo.dimensions}. Recreating table.`
+						);
+						new Notice(
+							`Recreating vector table due to dimension mismatch. Existing vectors will be lost.`,
+							5000
+						);
+					}
+					await this.vectorStore.createTable(true);
+					await this.vectorStore.save();
+				}
+				this.isDbReady = true;
+				console.log(
+					"PGliteVectorStore initialized and table checked/created."
+				);
+			}
+
+			// 3. CommandHandler の初期化
+			if (
+				this.isWorkerReady &&
+				this.isDbReady &&
+				this.vectorizer &&
+				this.vectorStore &&
+				!this.commandHandler
+			) {
 				this.commandHandler = new CommandHandler(
 					this.app,
-					this.vectorizer
+					this.vectorizer,
+					this.vectorStore
 				);
 				console.log("CommandHandler initialized.");
-			} else {
+			}
+
+			if (
+				!this.isWorkerReady ||
+				!this.isDbReady ||
+				!this.commandHandler
+			) {
 				throw new Error(
-					"Vectorizer was not ready after initialization attempt."
+					"Not all resources were ready after initialization attempt."
 				);
 			}
-		} catch (error) {
+			initNotice.setMessage("Resources initialized successfully!");
+			setTimeout(() => initNotice.hide(), 2000);
+		} catch (error: any) {
 			console.error("Failed to initialize resources:", error);
-			this.isWorkerReady = false; // 失敗したらフラグを false に
-			this.vectorizer = null; // リソースをクリア
+			initNotice.setMessage(
+				`Resource initialization failed: ${error.message}`
+			);
+			setTimeout(() => initNotice.hide(), 5000);
+			this.isWorkerReady = false;
+			this.isDbReady = false;
+			this.vectorizer = null;
+			this.pgProvider = null;
+			this.vectorStore = null;
 			this.commandHandler = null;
 			throw error;
 		} finally {
@@ -159,21 +273,33 @@ export default class MyVectorPlugin extends Plugin {
 		}
 	}
 
-	onunload() {
+	async onunload() {
 		console.log("Unloading vector plugin...");
-		// Worker を終了させる (WorkerProxyVectorizer の場合のみ)
 		if (this.vectorizer instanceof WorkerProxyVectorizer) {
 			console.log("Terminating vectorizer worker...");
 			this.vectorizer.terminate();
 		}
+		if (this.pgProvider) {
+			console.log("Closing PGlite database connection...");
+			await this.pgProvider
+				.close()
+				.catch((err) => console.error("Error closing PGlite:", err));
+		}
+
 		this.vectorizer = null;
 		this.commandHandler = null;
+		this.pgProvider = null;
+		this.vectorStore = null;
 		this.initializationPromise = null;
 		this.isWorkerReady = false;
+		this.isDbReady = false;
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
 	}
 }
 
-// --- Settings Tab Class ---
 class VectorizerSettingTab extends PluginSettingTab {
 	plugin: MyVectorPlugin;
 
@@ -198,8 +324,28 @@ class VectorizerSettingTab extends PluginSettingTab {
 					.setValue(this.plugin.settings.provider)
 					.onChange(async (value) => {
 						this.plugin.settings.provider = value;
-						await this.plugin.saveData(this.plugin.settings);
-						// TODO: 可能であれば、ここで動的に再初期化するロジックを追加
+						await this.plugin.saveSettings();
+						new Notice(
+							"Provider changed. Please reload the plugin for changes to take effect."
+						);
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Database Name")
+			.setDesc(
+				'The name of the database file to use (e.g., "my_embeddings"). Requires reload.'
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter database name")
+					.setValue(this.plugin.settings.databaseName)
+					.onChange(async (value) => {
+						this.plugin.settings.databaseName = value;
+						await this.plugin.saveSettings();
+						new Notice(
+							"Database name changed. Please reload the plugin for changes to take effect."
+						);
 					})
 			);
 	}
