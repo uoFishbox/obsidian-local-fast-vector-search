@@ -141,7 +141,7 @@ export class PGliteProvider {
 			const blob: Blob = await this.pgClient.dumpDataDir("gzip");
 			await this.plugin.app.vault.adapter.writeBinary(
 				this.dbFilePath,
-				Buffer.from(await blob.arrayBuffer())
+				new Uint8Array(await blob.arrayBuffer())
 			);
 			console.log("Database saved successfully");
 		} catch (error) {
@@ -291,7 +291,7 @@ export class PGliteProvider {
 					console.log(`Saving ${key} to cache: ${resourceInfo.path}`);
 					await this.plugin.app.vault.adapter.writeBinary(
 						resourceInfo.path,
-						Buffer.from(buffer)
+						new Uint8Array(buffer)
 					);
 					console.log(`${key} saved to cache.`);
 
