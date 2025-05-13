@@ -28,7 +28,7 @@ export class PGliteProvider {
 
 		// データベースファイル自体のパス
 		this.dbFilePath = normalizePath(
-			`${this.plugin.manifest.dir}/${this.dbName}.db`
+			`${this.plugin.manifest.dir}/${this.dbName}.tar.gz`
 		);
 		console.log("Database file path set to:", this.dbFilePath);
 
@@ -139,9 +139,10 @@ export class PGliteProvider {
 		try {
 			console.log("Saving database to:", this.dbFilePath);
 			const blob: Blob = await this.pgClient.dumpDataDir("gzip");
+			const arrayBuffer = await blob.arrayBuffer();
 			await this.plugin.app.vault.adapter.writeBinary(
 				this.dbFilePath,
-				new Uint8Array(await blob.arrayBuffer())
+				arrayBuffer
 			);
 			console.log("Database saved successfully");
 		} catch (error) {
@@ -231,13 +232,48 @@ export class PGliteProvider {
 				path: this.resourceCachePaths.wasmModule,
 				type: "application/wasm",
 				process: async (buffer: ArrayBuffer) => {
-					if (!WebAssembly.validate(buffer)) {
+					const wasmBytes = new Uint8Array(buffer);
+
+					if (!WebAssembly.validate(wasmBytes)) {
 						console.error(
-							"Invalid WebAssembly module data from buffer."
+							"Invalid WebAssembly module data (validated as Uint8Array)."
+						);
+						console.error(
+							`Buffer length: ${buffer.byteLength}, Uint8Array length: ${wasmBytes.length}`
 						);
 						throw new Error("Invalid WebAssembly module data.");
 					}
-					return WebAssembly.compile(buffer);
+					try {
+						console.log(
+							`Compiling WASM module from ${wasmBytes.length} bytes...`
+						);
+						const module = await WebAssembly.compile(wasmBytes);
+						console.log("WASM module compiled successfully.");
+						return module;
+					} catch (compileError) {
+						console.error(
+							"WebAssembly.compile failed:",
+							compileError
+						);
+						console.error(
+							`Buffer length: ${buffer.byteLength}, Uint8Array length: ${wasmBytes.length}`
+						);
+						if (compileError instanceof Error) {
+							console.error(
+								"Compile Error name:",
+								compileError.name
+							);
+							console.error(
+								"Compile Error message:",
+								compileError.message
+							);
+							console.error(
+								"Compile Error stack:",
+								compileError.stack
+							);
+						}
+						throw compileError;
+					}
 				},
 			},
 			vectorExtensionBundle: {
@@ -248,6 +284,9 @@ export class PGliteProvider {
 					const blob = new Blob([buffer], {
 						type: "application/gzip",
 					});
+					// 重要: createObjectURLで生成したURLは、不要になったらrevokeObjectURLで解放する必要がある。
+					// PGliteが内部で適切に処理するか、別途解放ロジックが必要か確認が必要。
+					// ここでは一旦そのままURLを返す。
 					return new URL(URL.createObjectURL(blob));
 				},
 			},
@@ -264,19 +303,24 @@ export class PGliteProvider {
 					resourceInfo.path
 				);
 
+				let buffer: ArrayBuffer;
+
 				if (fileExists) {
 					console.log(`${key} found in cache. Reading...`);
-					const buffer =
-						await this.plugin.app.vault.adapter.readBinary(
-							resourceInfo.path
-						);
-					loadedResources[key] = await resourceInfo.process(buffer);
-					console.log(`${key} loaded from cache.`);
+					buffer = await this.plugin.app.vault.adapter.readBinary(
+						resourceInfo.path
+					);
+					console.log(
+						`${key} read from cache (${buffer.byteLength} bytes).`
+					);
 				} else {
 					console.log(
 						`${key} not found in cache. Downloading from ${resourceInfo.url}...`
 					);
-					const response = await requestUrl(resourceInfo.url);
+					const response = await requestUrl({
+						url: resourceInfo.url,
+						method: "GET",
+					});
 
 					if (response.status !== 200) {
 						throw new Error(
@@ -284,7 +328,10 @@ export class PGliteProvider {
 						);
 					}
 
-					const buffer = response.arrayBuffer;
+					buffer = response.arrayBuffer;
+					console.log(
+						`${key} downloaded (${buffer.byteLength} bytes).`
+					);
 
 					const cacheDir = resourceInfo.path.substring(
 						0,
@@ -299,15 +346,20 @@ export class PGliteProvider {
 					console.log(`Saving ${key} to cache: ${resourceInfo.path}`);
 					await this.plugin.app.vault.adapter.writeBinary(
 						resourceInfo.path,
-						new Uint8Array(buffer)
+						buffer
 					);
 					console.log(`${key} saved to cache.`);
-
-					loadedResources[key] = await resourceInfo.process(buffer);
-					console.log(`${key} processed after download.`);
 				}
+
+				loadedResources[key] = await resourceInfo.process(buffer);
+				console.log(`${key} processed successfully.`);
 			} catch (error) {
 				console.error(`Error loading or caching ${key}:`, error);
+				if (error instanceof Error) {
+					console.error(
+						`Error details for ${key}: Name: ${error.name}, Message: ${error.message}`
+					);
+				}
 				throw new Error(
 					`Failed to load or cache PGlite resource "${key}": ${error}`
 				);
