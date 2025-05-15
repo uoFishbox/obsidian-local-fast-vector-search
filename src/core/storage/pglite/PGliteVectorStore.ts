@@ -11,8 +11,8 @@ import {
 } from "../../storage/types";
 
 export class PGliteVectorStore {
-	private tableManager: PGliteTableManager;
-	private logger: LoggerService | null; // logger プロパティを追加
+	private tableManager!: PGliteTableManager;
+	private logger: LoggerService | null;
 
 	constructor(
 		private provider: PGliteProvider,
@@ -21,6 +21,10 @@ export class PGliteVectorStore {
 		logger: LoggerService | null
 	) {
 		this.logger = logger;
+		this.initTableManager();
+	}
+
+	private initTableManager(): void {
 		this.tableManager = new PGliteTableManager(
 			this.provider,
 			this.tableName,
@@ -29,24 +33,42 @@ export class PGliteVectorStore {
 		);
 	}
 
-	// --- ヘルパー関数: SQL識別子を安全にクォートする ---
 	private quoteIdentifier(identifier: string): string {
 		return `"${identifier.replace(/"/g, '""')}"`;
 	}
 
 	private getClient(): PGliteInterface {
 		if (!this.provider.isReady()) {
-			const error = new Error("PGlite provider is not ready");
-			this.logger?.error("PGlite client error:", error);
-			throw error;
+			this.throwWithLog("PGlite provider is not ready");
 		}
+
 		const client = this.provider.getClient();
 		if (!client) {
-			const error = new Error("PGlite client is not available");
-			this.logger?.error("PGlite client error:", error);
-			throw error;
+			this.throwWithLog("PGlite client is not available");
 		}
+
 		return client;
+	}
+
+	private throwWithLog(message: string, error?: unknown): never {
+		const exception = error instanceof Error ? error : new Error(message);
+		this.logger?.error(`PGlite error: ${message}`, error || exception);
+		throw exception;
+	}
+
+	private async executeSql<T>(
+		sql: string,
+		params: any[] = [],
+		logMessage: string
+	): Promise<any> {
+		try {
+			const client = this.getClient();
+			const result = await client.query<T>(sql, params);
+			this.logger?.verbose_log(logMessage);
+			return result.rows;
+		} catch (error) {
+			this.throwWithLog(`Error executing SQL: ${logMessage}`, error);
+		}
 	}
 
 	isReady(): boolean {
@@ -59,12 +81,7 @@ export class PGliteVectorStore {
 
 	setDimensions(dimensions: number): void {
 		this.dimensions = dimensions;
-		this.tableManager = new PGliteTableManager(
-			this.provider,
-			this.tableName,
-			this.dimensions,
-			this.logger
-		);
+		this.initTableManager();
 	}
 
 	async checkTableExists(): Promise<{
@@ -79,12 +96,7 @@ export class PGliteVectorStore {
 
 	async createTable(force: boolean = false): Promise<void> {
 		if (this.tableManager["dimensions"] !== this.dimensions) {
-			this.tableManager = new PGliteTableManager(
-				this.provider,
-				this.tableName,
-				this.dimensions,
-				this.logger
-			);
+			this.initTableManager();
 		}
 		await this.tableManager.createTable(force);
 	}
@@ -95,16 +107,13 @@ export class PGliteVectorStore {
 			return;
 		}
 
-		const pgClient = this.getClient();
 		const quotedTableName = this.quoteIdentifier(this.tableName);
-
 		const valuesPlaceholders: string[] = [];
 		const params: (string | number | string | null)[] = [];
 		let paramIndex = 1;
 
 		for (const item of items) {
 			valuesPlaceholders.push(
-				// (file_path, chunk_offset_start, chunk_offset_end, embedding, chunk)
 				`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
 			);
 			params.push(
@@ -121,18 +130,11 @@ export class PGliteVectorStore {
             VALUES ${valuesPlaceholders.join(", ")}
         `;
 
-		try {
-			await pgClient.query(sql, params);
-			this.logger?.verbose_log(
-				`Successfully inserted ${items.length} vectors into ${this.tableName}.`
-			);
-		} catch (error) {
-			this.logger?.error(
-				`Error inserting batch of vectors into ${this.tableName}:`,
-				error
-			);
-			throw error;
-		}
+		await this.executeSql(
+			sql,
+			params,
+			`Successfully inserted ${items.length} vectors into ${this.tableName}.`
+		);
 	}
 
 	async upsertVectors(
@@ -146,85 +148,100 @@ export class PGliteVectorStore {
 
 		const pgClient = this.getClient();
 
-		await pgClient
-			.transaction(async (tx: Transaction) => {
-				const filePathsToDelete = [
-					...new Set(items.map((item) => item.filePath)),
-				];
+		try {
+			await pgClient.transaction(async (tx: Transaction) => {
+				// 1. まず既存のファイルパスに関連するレコードを削除
+				await this.deleteExistingRecords(tx, items, batchSize);
 
-				for (let i = 0; i < filePathsToDelete.length; i += batchSize) {
-					const batchFilePaths = filePathsToDelete.slice(
-						i,
-						i + batchSize
-					);
-					if (batchFilePaths.length > 0) {
-						const placeholders = batchFilePaths
-							.map((_, idx) => `$${idx + 1}`)
-							.join(", ");
-						await tx.query(
-							`DELETE FROM ${this.quoteIdentifier(
-								this.tableName
-							)} WHERE file_path IN (${placeholders})`,
-							batchFilePaths
-						);
-						this.logger?.verbose_log(
-							`Deleted vectors for ${batchFilePaths.length} files from ${this.tableName}`
-						);
-					}
-				}
-
-				for (let i = 0; i < items.length; i += batchSize) {
-					const batchItems = items.slice(i, i + batchSize);
-					if (batchItems.length === 0) continue;
-
-					const valuePlaceholders: string[] = [];
-					const params: (string | number | string | null)[] = [];
-					let paramIndex = 1;
-
-					for (const item of batchItems) {
-						valuePlaceholders.push(
-							// (file_path, chunk_offset_start, chunk_offset_end, embedding, chunk)
-							`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
-						);
-						params.push(
-							item.filePath,
-							item.chunkOffsetStart,
-							item.chunkOffsetEnd,
-							JSON.stringify(item.vector),
-							null
-						);
-					}
-
-					if (valuePlaceholders.length > 0) {
-						const insertSql = `
-                        INSERT INTO ${this.quoteIdentifier(
-							this.tableName
-						)} (file_path, chunk_offset_start, chunk_offset_end, embedding, chunk)
-                        VALUES ${valuePlaceholders.join(", ")}
-                    `;
-						await tx.query(insertSql, params);
-						this.logger?.verbose_log(
-							`Inserted ${batchItems.length} vectors into ${this.tableName}`
-						);
-					}
-				}
-			})
-			.catch((error) => {
-				this.logger?.error(
-					`Error in upsertVectors transaction for ${this.tableName}:`,
-					error
-				);
-				throw error;
+				// 2. 新しいレコードをバッチで挿入
+				await this.batchInsertRecords(tx, items, batchSize);
 			});
 
-		this.logger?.verbose_log(
-			`Successfully upserted all ${items.length} vectors into ${this.tableName}`
-		);
+			this.logger?.verbose_log(
+				`Successfully upserted all ${items.length} vectors into ${this.tableName}`
+			);
+		} catch (error) {
+			this.throwWithLog(
+				`Error in upsertVectors transaction for ${this.tableName}:`,
+				error
+			);
+		}
+	}
+
+	private async deleteExistingRecords(
+		tx: Transaction,
+		items: VectorItem[],
+		batchSize: number
+	): Promise<void> {
+		const filePathsToDelete = [
+			...new Set(items.map((item) => item.filePath)),
+		];
+
+		for (let i = 0; i < filePathsToDelete.length; i += batchSize) {
+			const batchFilePaths = filePathsToDelete.slice(i, i + batchSize);
+			if (batchFilePaths.length === 0) continue;
+
+			const placeholders = batchFilePaths
+				.map((_, idx) => `$${idx + 1}`)
+				.join(", ");
+
+			await tx.query(
+				`DELETE FROM ${this.quoteIdentifier(
+					this.tableName
+				)} WHERE file_path IN (${placeholders})`,
+				batchFilePaths
+			);
+
+			this.logger?.verbose_log(
+				`Deleted vectors for ${batchFilePaths.length} files from ${this.tableName}`
+			);
+		}
+	}
+
+	private async batchInsertRecords(
+		tx: Transaction,
+		items: VectorItem[],
+		batchSize: number
+	): Promise<void> {
+		for (let i = 0; i < items.length; i += batchSize) {
+			const batchItems = items.slice(i, i + batchSize);
+			if (batchItems.length === 0) continue;
+
+			const valuePlaceholders: string[] = [];
+			const params: (string | number | string | null)[] = [];
+			let paramIndex = 1;
+
+			for (const item of batchItems) {
+				valuePlaceholders.push(
+					`($${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++}, $${paramIndex++})`
+				);
+				params.push(
+					item.filePath,
+					item.chunkOffsetStart,
+					item.chunkOffsetEnd,
+					JSON.stringify(item.vector),
+					null
+				);
+			}
+
+			if (valuePlaceholders.length > 0) {
+				const insertSql = `
+				INSERT INTO ${this.quoteIdentifier(this.tableName)} 
+				(file_path, chunk_offset_start, chunk_offset_end, embedding, chunk)
+				VALUES ${valuePlaceholders.join(", ")}
+				`;
+				await tx.query(insertSql, params);
+				this.logger?.verbose_log(
+					`Inserted ${batchItems.length} vectors into ${this.tableName}`
+				);
+			}
+		}
 	}
 
 	getTableName(): string {
 		return this.tableName;
 	}
+
 	async searchSimilar(
 		vector: number[],
 		limit: number = 20,
@@ -246,15 +263,18 @@ export class PGliteVectorStore {
 			);
 			return result.rows;
 		} catch (error) {
-			this.logger?.error(
+			this.throwWithLog(
 				`Error searching similar vectors in ${this.tableName}:`,
 				error
 			);
-			throw error;
 		}
 	}
 
 	getProvider(): PGliteProvider {
 		return this.provider;
+	}
+
+	getTableManager(): PGliteTableManager {
+		return this.tableManager;
 	}
 }
