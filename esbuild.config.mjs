@@ -20,9 +20,11 @@ const context = await esbuild.context({
 	},
 	entryPoints: ["src/main.ts"],
 	bundle: true,
-	plugins: [
-        inlineWorkerPlugin(),
-    ],
+	plugins: [inlineWorkerPlugin({
+		define: {
+			'process': '{}', // web workerでprocessを空オブジェクトに設定する (node.jsと認識されないようにする)
+		},
+	})],
 	external: [
 		"obsidian",
 		"electron",
@@ -47,10 +49,6 @@ const context = await esbuild.context({
 	outfile: "main.js",
 	minify: prod,
 		define: {
-		// Prevent PGlite from detecting a Node environment
-		'process': '{}',
-		'global': 'window',
-		'import.meta.url': 'import_meta_url',
 	},
 	inject: [path.resolve('import-meta-url-shim.js')],
 });

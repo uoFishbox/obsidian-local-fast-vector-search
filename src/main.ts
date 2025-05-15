@@ -7,7 +7,10 @@ import { WorkerProxyVectorizer } from "./core/vectorizers/WorkerVectorizerProxy"
 import { PGliteProvider } from "./core/storage/pglite/PGliteProvider";
 import { PGliteVectorStore } from "./core/storage/pglite/PGliteVectorStore";
 import { SearchModal } from "./ui/modals/SearchModal";
-import { DB_NAME } from "./shared/constants/appConstants";
+import {
+	DB_NAME,
+	EMBEDDINGS_TABLE_NAME,
+} from "./shared/constants/appConstants";
 import { TextChunker } from "./core/chunking/TextChunker";
 import { NotificationService } from "./shared/services/NotificationService";
 import { VectorizationService } from "./core/services/VectorizationService";
@@ -226,11 +229,12 @@ export default class MyVectorPlugin extends Plugin {
 			if (!this.isDbReady && this.isWorkerReady) {
 				initNotice.setMessage("Initializing database...");
 				this.pgProvider = new PGliteProvider(
-					this,
 					DB_NAME,
 					true,
-					this.logger
-				); // loggerを渡す
+					this.logger,
+					EMBEDDINGS_TABLE_NAME,
+					EMBEDDING_DIMENSION
+				);
 				await this.pgProvider.initialize();
 				if (this.logger)
 					this.logger.verbose_log("PGliteProvider initialized.");
@@ -399,13 +403,12 @@ export default class MyVectorPlugin extends Plugin {
 		if (this.pgProvider) {
 			if (this.logger)
 				this.logger.verbose_log(
-					"Closing PGlite database connection..."
+					"Closing PGlite database connection (worker)..."
 				);
 			await this.pgProvider.close().catch((err: any) => {
-				// 波括弧を追加
 				if (this.logger)
-					this.logger.error("Error closing PGlite:", err);
-			}); // 波括弧を追加
+					this.logger.error("Error closing PGlite (worker):", err);
+			});
 		}
 
 		this.vectorizer = null;
