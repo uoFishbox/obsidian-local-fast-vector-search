@@ -3,14 +3,19 @@ import type { IVectorizer } from "../vectorizers/IVectorizer";
 import { TextChunker } from "../../core/chunking/TextChunker";
 import type { PGliteVectorStore } from "../storage/pglite/PGliteVectorStore";
 import type { VectorItem } from "../storage/types";
+import { LoggerService } from "../../shared/services/LoggerService";
 
 export class VectorizationService {
+	private logger: LoggerService | null;
 	constructor(
 		private app: App,
 		private vectorizer: IVectorizer,
 		private vectorStore: PGliteVectorStore,
-		private textChunker: TextChunker
-	) {}
+		private textChunker: TextChunker,
+		logger: LoggerService | null
+	) {
+		this.logger = logger;
+	}
 
 	private async generateVectorItemsFromFileContent(
 		filePath: string,
@@ -68,7 +73,9 @@ export class VectorizationService {
 			try {
 				const content = await this.app.vault.cachedRead(file);
 				if (!content.trim()) {
-					console.log(`Skipping empty file: ${file.path}`);
+					this.logger?.verbose_log(
+						`Skipping empty file: ${file.path}`
+					);
 					if (onProgress)
 						onProgress(`${noticeMessage} (skipped empty)`, false);
 					continue;
@@ -81,7 +88,7 @@ export class VectorizationService {
 				allItemsToInsert.push(...itemsFromFile);
 				if (onProgress) onProgress(noticeMessage, false);
 			} catch (fileError) {
-				console.error(
+				this.logger?.error(
 					`Failed to process file ${file.path}:`,
 					fileError
 				);
@@ -103,7 +110,9 @@ export class VectorizationService {
 			totalVectorsProcessed = await this.saveVectorItemsToStore(
 				allItemsToInsert
 			);
-			console.log(`Upserted ${totalVectorsProcessed} vectors in batch.`);
+			this.logger?.verbose_log(
+				`Upserted ${totalVectorsProcessed} vectors in batch.`
+			);
 		} else {
 			if (onProgress)
 				onProgress("No new vectors to save from any notes.", true);

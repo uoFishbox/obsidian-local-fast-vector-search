@@ -4,12 +4,15 @@ import { IdbFs } from "@electric-sql/pglite";
 import { deleteDB } from "idb";
 const PGLITE_VERSION = "0.2.14";
 
+import { LoggerService } from "../../../shared/services/LoggerService";
+
 export class PGliteProvider {
 	private plugin: Plugin;
 	private dbName: string;
 	private pgClient: PGlite | null = null;
 	private isInitialized: boolean = false;
 	private relaxedDurability: boolean;
+	private logger: LoggerService | null;
 
 	private resourceCachePaths: {
 		fsBundle: string;
@@ -20,9 +23,11 @@ export class PGliteProvider {
 	constructor(
 		plugin: Plugin,
 		dbName: string,
-		relaxedDurability: boolean = true
+		relaxedDurability: boolean = true,
+		logger: LoggerService | null
 	) {
 		this.plugin = plugin;
+		this.logger = logger;
 		this.dbName = dbName;
 		this.relaxedDurability = relaxedDurability;
 
@@ -40,12 +45,15 @@ export class PGliteProvider {
 				`${cacheDir}/pglite-${PGLITE_VERSION}-vector.tar.gz`
 			),
 		};
-		console.log("PGlite resource cache directory set to:", cacheDir);
+		this.logger?.verbose_log(
+			"PGlite resource cache directory set to:",
+			cacheDir
+		);
 	}
 
 	async initialize(): Promise<void> {
 		if (this.isInitialized && this.pgClient) {
-			console.log("PGliteProvider already initialized.");
+			this.logger?.verbose_log("PGliteProvider already initialized.");
 			return;
 		}
 
@@ -53,7 +61,9 @@ export class PGliteProvider {
 			const { fsBundle, wasmModule, vectorExtensionBundlePath } =
 				await this.loadPGliteResources();
 
-			console.log(`Creating/Opening database: ${this.dbName}`);
+			this.logger?.verbose_log(
+				`Creating/Opening database: ${this.dbName}`
+			);
 			this.pgClient = await this.createPGliteInstance({
 				fsBundle,
 				wasmModule,
@@ -64,7 +74,7 @@ export class PGliteProvider {
 			URL.revokeObjectURL(vectorExtensionBundlePath.href);
 
 			this.isInitialized = true;
-			console.log("PGlite initialized successfully");
+			this.logger?.verbose_log("PGlite initialized successfully");
 
 			const cacheDir = this.resourceCachePaths!.fsBundle.substring(
 				0,
@@ -74,7 +84,7 @@ export class PGliteProvider {
 				await this.plugin.app.vault.adapter.mkdir(cacheDir);
 			}
 		} catch (error) {
-			console.error("Error initializing PGlite:", error);
+			this.logger?.error("Error initializing PGlite:", error);
 			// 初期化失敗時は状態をリセット
 			this.pgClient = null;
 			this.isInitialized = false;
@@ -84,7 +94,9 @@ export class PGliteProvider {
 
 	getClient(): PGlite {
 		if (!this.pgClient) {
-			throw new Error("PGlite client is not initialized");
+			const error = new Error("PGlite client is not initialized");
+			this.logger?.error("PGlite client error:", error);
+			throw error;
 		}
 		return this.pgClient;
 	}
@@ -99,28 +111,34 @@ export class PGliteProvider {
 				await this.pgClient.close();
 				this.pgClient = null;
 				this.isInitialized = false;
-				console.log("PGlite connection closed");
+				this.logger?.verbose_log("PGlite connection closed");
 			} catch (error) {
-				console.error("Error closing PGlite connection:", error);
+				this.logger?.error("Error closing PGlite connection:", error);
 			}
 		}
 	}
 
 	async discardDB(): Promise<void> {
-		console.log(`Discarding PGlite database: ${this.dbName} using idb.`);
+		this.logger?.verbose_log(
+			`Discarding PGlite database: ${this.dbName} using idb.`
+		);
 		try {
 			if (this.pgClient) {
 				await this.close();
-				console.log("Closed existing PGlite client before discarding.");
+				this.logger?.verbose_log(
+					"Closed existing PGlite client before discarding."
+				);
 			}
 
 			await deleteDB("/pglite/" + this.dbName);
-			console.log(`Successfully discarded database: ${this.dbName}`);
+			this.logger?.verbose_log(
+				`Successfully discarded database: ${this.dbName}`
+			);
 
 			this.pgClient = null;
 			this.isInitialized = false;
 		} catch (error: any) {
-			console.error(
+			this.logger?.error(
 				`Error discarding PGlite database ${this.dbName}:`,
 				error
 			);
@@ -182,39 +200,41 @@ export class PGliteProvider {
 					const wasmBytes = new Uint8Array(buffer);
 
 					if (!WebAssembly.validate(wasmBytes)) {
-						console.error(
+						this.logger?.error(
 							"Invalid WebAssembly module data (validated as Uint8Array)."
 						);
-						console.error(
+						this.logger?.error(
 							`Buffer length: ${buffer.byteLength}, Uint8Array length: ${wasmBytes.length}`
 						);
 						throw new Error("Invalid WebAssembly module data.");
 					}
 					try {
-						console.log(
+						this.logger?.verbose_log(
 							`Compiling WASM module from ${wasmBytes.length} bytes...`
 						);
 						const module = await WebAssembly.compile(wasmBytes);
-						console.log("WASM module compiled successfully.");
+						this.logger?.verbose_log(
+							"WASM module compiled successfully."
+						);
 						return module;
 					} catch (compileError) {
-						console.error(
+						this.logger?.error(
 							"WebAssembly.compile failed:",
 							compileError
 						);
-						console.error(
+						this.logger?.error(
 							`Buffer length: ${buffer.byteLength}, Uint8Array length: ${wasmBytes.length}`
 						);
 						if (compileError instanceof Error) {
-							console.error(
+							this.logger?.error(
 								"Compile Error name:",
 								compileError.name
 							);
-							console.error(
+							this.logger?.error(
 								"Compile Error message:",
 								compileError.message
 							);
-							console.error(
+							this.logger?.error(
 								"Compile Error stack:",
 								compileError.stack
 							);
@@ -232,7 +252,7 @@ export class PGliteProvider {
 						type: "application/gzip",
 					});
 					const blobUrl = URL.createObjectURL(blob);
-					console.log(
+					this.logger?.verbose_log(
 						"Created Blob URL for vector extension bundle:",
 						blobUrl
 					);
@@ -244,7 +264,7 @@ export class PGliteProvider {
 		const loadedResources: any = {};
 
 		for (const [key, resourceInfo] of Object.entries(resources)) {
-			console.log(
+			this.logger?.verbose_log(
 				`Attempting to load ${key} from cache: ${resourceInfo.path}`
 			);
 			try {
@@ -255,15 +275,17 @@ export class PGliteProvider {
 				let buffer: ArrayBuffer;
 
 				if (fileExists) {
-					console.log(`${key} found in cache. Reading...`);
+					this.logger?.verbose_log(
+						`${key} found in cache. Reading...`
+					);
 					buffer = await this.plugin.app.vault.adapter.readBinary(
 						resourceInfo.path
 					);
-					console.log(
+					this.logger?.verbose_log(
 						`${key} read from cache (${buffer.byteLength} bytes).`
 					);
 				} else {
-					console.log(
+					this.logger?.verbose_log(
 						`${key} not found in cache. Downloading from ${resourceInfo.url}...`
 					);
 					const response = await requestUrl({
@@ -278,7 +300,7 @@ export class PGliteProvider {
 					}
 
 					buffer = response.arrayBuffer;
-					console.log(
+					this.logger?.verbose_log(
 						`${key} downloaded (${buffer.byteLength} bytes).`
 					);
 
@@ -292,20 +314,22 @@ export class PGliteProvider {
 						await this.plugin.app.vault.adapter.mkdir(cacheDir);
 					}
 
-					console.log(`Saving ${key} to cache: ${resourceInfo.path}`);
+					this.logger?.verbose_log(
+						`Saving ${key} to cache: ${resourceInfo.path}`
+					);
 					await this.plugin.app.vault.adapter.writeBinary(
 						resourceInfo.path,
 						buffer
 					);
-					console.log(`${key} saved to cache.`);
+					this.logger?.verbose_log(`${key} saved to cache.`);
 				}
 
 				loadedResources[key] = await resourceInfo.process(buffer);
-				console.log(`${key} processed successfully.`);
+				this.logger?.verbose_log(`${key} processed successfully.`);
 			} catch (error) {
-				console.error(`Error loading or caching ${key}:`, error);
+				this.logger?.error(`Error loading or caching ${key}:`, error);
 				if (error instanceof Error) {
-					console.error(
+					this.logger?.error(
 						`Error details for ${key}: Name: ${error.name}, Message: ${error.message}`
 					);
 				}

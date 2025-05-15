@@ -1,4 +1,5 @@
 import { Plugin, Notice, App } from "obsidian";
+import { LoggerService } from "./shared/services/LoggerService";
 import { IVectorizer } from "./core/vectorizers/IVectorizer";
 import { createTransformersVectorizer } from "./core/vectorizers/VectorizerFactory";
 import { CommandHandler } from "./commands";
@@ -36,8 +37,11 @@ export default class MyVectorPlugin extends Plugin {
 	storageManagementService: StorageManagementService | null = null;
 	notificationService: NotificationService | null = null;
 	textChunker: TextChunker | null = null;
+	logger: LoggerService | null = null; // 型を修正し、初期値をnullに設定
 
 	async onload() {
+		this.logger = new LoggerService();
+		this.logger.updateSettings(this.settings); // LoggerServiceの初期設定を反映
 		this.settings = Object.assign(
 			{},
 			DEFAULT_SETTINGS,
@@ -47,9 +51,10 @@ export default class MyVectorPlugin extends Plugin {
 		this.addSettingTab(new VectorizerSettingTab(this.app, this));
 
 		this.app.workspace.onLayoutReady(async () => {
-			console.log(
-				"Obsidian layout ready. Triggering background initialization."
-			);
+			if (this.logger)
+				this.logger.verbose_log(
+					"Obsidian layout ready. Triggering background initialization."
+				);
 			this.initializationPromise = this.initializeResources().catch(
 				(error) => {
 					console.error(
@@ -166,41 +171,52 @@ export default class MyVectorPlugin extends Plugin {
 		}
 
 		if (!this.initializationPromise) {
-			console.log("Initialization not started, starting now.");
+			if (this.logger)
+				this.logger.verbose_log(
+					"Initialization not started, starting now."
+				);
 			this.initializationPromise = this.initializeResources();
 		}
 
-		console.log("Waiting for resource initialization to complete...");
+		if (this.logger)
+			this.logger.verbose_log(
+				"Waiting for resource initialization to complete..."
+			);
 		await this.initializationPromise;
 		if (!this.isWorkerReady || !this.isDbReady) {
 			throw new Error("Resources failed to initialize.");
 		}
-		console.log("Resource initialization confirmed.");
+		if (this.logger)
+			this.logger.verbose_log("Resource initialization confirmed.");
 	}
 
 	async initializeResources(): Promise<void> {
 		if (this.isWorkerReady && this.isDbReady) {
-			console.log("Resources already initialized.");
+			if (this.logger)
+				this.logger.verbose_log("Resources already initialized.");
 			return;
 		}
 
-		console.log(
-			"Initializing resources (Vectorizer, Database, Command Handler)..."
-		);
+		if (this.logger)
+			this.logger.verbose_log(
+				"Initializing resources (Vectorizer, Database, Command Handler)..."
+			);
 		const initNotice = new Notice("Initializing resources...", 0);
 
 		try {
 			// 1. Vectorizer (Worker) の初期化
 			if (!this.isWorkerReady) {
 				initNotice.setMessage("Initializing vectorizer worker...");
-				this.vectorizer = createTransformersVectorizer();
+				this.vectorizer = createTransformersVectorizer(this.logger); // loggerを渡す
 				if (this.vectorizer instanceof WorkerProxyVectorizer) {
-					console.log(
-						"Waiting for WorkerProxyVectorizer initialization..."
-					);
+					if (this.logger)
+						this.logger.verbose_log(
+							"Waiting for WorkerProxyVectorizer initialization..."
+						);
 					await this.vectorizer.ensureInitialized();
 					this.isWorkerReady = true;
-					console.log("Vectorizer Worker is ready.");
+					if (this.logger)
+						this.logger.verbose_log("Vectorizer Worker is ready.");
 				} else {
 					this.isWorkerReady = true;
 				}
@@ -209,13 +225,21 @@ export default class MyVectorPlugin extends Plugin {
 			// 2. PGliteProvider と PGliteVectorStore の初期化
 			if (!this.isDbReady && this.isWorkerReady) {
 				initNotice.setMessage("Initializing database...");
-				this.pgProvider = new PGliteProvider(this, DB_NAME, true);
+				this.pgProvider = new PGliteProvider(
+					this,
+					DB_NAME,
+					true,
+					this.logger
+				); // loggerを渡す
 				await this.pgProvider.initialize();
-				console.log("PGliteProvider initialized.");
+				if (this.logger)
+					this.logger.verbose_log("PGliteProvider initialized.");
 
 				this.vectorStore = new PGliteVectorStore(
 					this.pgProvider,
-					EMBEDDING_DIMENSION
+					EMBEDDING_DIMENSION,
+					undefined, // tableName はデフォルト値を使用
+					this.logger // loggerを渡す
 				);
 				const tableInfo = await this.vectorStore.checkTableExists();
 				if (
@@ -237,15 +261,17 @@ export default class MyVectorPlugin extends Plugin {
 					await this.vectorStore.createTable(true);
 				}
 				this.isDbReady = true;
-				console.log(
-					"PGliteVectorStore initialized and table checked/created."
-				);
+				if (this.logger)
+					this.logger.verbose_log(
+						"PGliteVectorStore initialized and table checked/created."
+					);
 			}
 
 			// 3. Initialize TextChunker
 			if (!this.textChunker) {
 				this.textChunker = new TextChunker({}); // Use default options or load from settings
-				console.log("TextChunker initialized.");
+				if (this.logger)
+					this.logger.verbose_log("TextChunker initialized.");
 			}
 
 			// 4. Initialize Services (after vectorizer, vectorStore, textChunker are ready)
@@ -261,16 +287,21 @@ export default class MyVectorPlugin extends Plugin {
 						this.app,
 						this.vectorizer,
 						this.vectorStore,
-						this.textChunker
+						this.textChunker,
+						this.logger // loggerを渡す
 					);
-					console.log("VectorizationService initialized.");
+					if (this.logger)
+						this.logger.verbose_log(
+							"VectorizationService initialized."
+						);
 				}
 				if (!this.searchService) {
 					this.searchService = new SearchService(
 						this.vectorizer,
 						this.vectorStore
 					);
-					console.log("SearchService initialized.");
+					if (this.logger)
+						this.logger.verbose_log("SearchService initialized.");
 				}
 				if (!this.storageManagementService) {
 					this.storageManagementService =
@@ -279,14 +310,22 @@ export default class MyVectorPlugin extends Plugin {
 							new PGliteTableManager(
 								this.pgProvider!,
 								this.vectorStore!.getTableName(),
-								this.vectorStore!.getDimensions()
-							)
+								this.vectorStore!.getDimensions(),
+								this.logger // loggerを渡す
+							),
+							this.logger // loggerを渡す
 						);
-					console.log("StorageManagementService initialized.");
+					if (this.logger)
+						this.logger.verbose_log(
+							"StorageManagementService initialized."
+						);
 				}
 				if (!this.notificationService) {
 					this.notificationService = new NotificationService();
-					console.log("NotificationService initialized.");
+					if (this.logger)
+						this.logger.verbose_log(
+							"NotificationService initialized."
+						);
 				}
 			}
 
@@ -303,7 +342,10 @@ export default class MyVectorPlugin extends Plugin {
 					this.searchService,
 					this.storageManagementService
 				);
-				console.log("CommandHandler initialized with new services.");
+				if (this.logger)
+					this.logger.verbose_log(
+						"CommandHandler initialized with new services."
+					);
 			}
 
 			if (
@@ -322,7 +364,8 @@ export default class MyVectorPlugin extends Plugin {
 			initNotice.setMessage("Resources initialized successfully!");
 			setTimeout(() => initNotice.hide(), 2000);
 		} catch (error: any) {
-			console.error("Failed to initialize resources:", error);
+			if (this.logger)
+				this.logger.error("Failed to initialize resources:", error);
 			initNotice.setMessage(
 				`Resource initialization failed: ${error.message}`
 			);
@@ -339,23 +382,30 @@ export default class MyVectorPlugin extends Plugin {
 			this.storageManagementService = null;
 			throw error;
 		} finally {
-			console.log("Resource initialization attempt finished.");
+			if (this.logger)
+				this.logger.verbose_log(
+					"Resource initialization attempt finished."
+				);
 		}
 	}
 
 	async onunload() {
-		console.log("Unloading vector plugin...");
+		if (this.logger) this.logger.verbose_log("Unloading vector plugin...");
 		if (this.vectorizer instanceof WorkerProxyVectorizer) {
-			console.log("Terminating vectorizer worker...");
+			if (this.logger)
+				this.logger.verbose_log("Terminating vectorizer worker...");
 			this.vectorizer.terminate();
 		}
 		if (this.pgProvider) {
-			console.log("Closing PGlite database connection...");
-			await this.pgProvider
-				.close()
-				.catch((err: any) =>
-					console.error("Error closing PGlite:", err)
+			if (this.logger)
+				this.logger.verbose_log(
+					"Closing PGlite database connection..."
 				);
+			await this.pgProvider.close().catch((err: any) => {
+				// 波括弧を追加
+				if (this.logger)
+					this.logger.error("Error closing PGlite:", err);
+			}); // 波括弧を追加
 		}
 
 		this.vectorizer = null;
@@ -370,9 +420,14 @@ export default class MyVectorPlugin extends Plugin {
 		this.initializationPromise = null;
 		this.isWorkerReady = false;
 		this.isDbReady = false;
+		this.logger = null;
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		if (this.logger) {
+			// nullチェックを追加
+			this.logger.updateSettings(this.settings);
+		}
 	}
 }

@@ -1,6 +1,7 @@
 import { IVectorizer } from "./IVectorizer";
 import { Notice } from "obsidian";
 import VectorizerWorker from "./TransformersVectorizer.worker?worker";
+import { LoggerService } from "../../shared/services/LoggerService";
 
 interface WorkerRequest {
 	id: string;
@@ -21,8 +22,10 @@ export class WorkerProxyVectorizer implements IVectorizer {
 	> = new Map();
 	private isWorkerInitialized: boolean = false;
 	private initializationPromise: Promise<boolean>;
+	private logger: LoggerService | null;
 
-	constructor() {
+	constructor(logger: LoggerService | null) {
+		this.logger = logger;
 		this.worker = new VectorizerWorker();
 		this.setupWorkerListeners();
 
@@ -33,19 +36,19 @@ export class WorkerProxyVectorizer implements IVectorizer {
 				if (data.type === "initialized") {
 					this.isWorkerInitialized = data.payload;
 					if (this.isWorkerInitialized) {
-						console.log(
+						this.logger?.verbose_log(
 							"WorkerProxy: Worker initialization successful."
 						);
 						resolve(true);
 					} else {
-						console.error(
+						this.logger?.error(
 							"WorkerProxy: Worker initialization failed."
 						);
 						reject(new Error("Worker initialization failed."));
 					}
 				} else if (data.type === "error" && !this.isWorkerInitialized) {
 					// 初期化中のエラー
-					console.error(
+					this.logger?.error(
 						"WorkerProxy: Received error during initialization:",
 						data.payload
 					);
@@ -79,14 +82,14 @@ export class WorkerProxyVectorizer implements IVectorizer {
 					this.requestPromises.delete(id);
 				}
 			} else if (type === "status") {
-				console.log(`[Worker Status] ${payload}`);
+				this.logger?.verbose_log(`[Worker Status] ${payload}`);
 			} else if (type === "progress") {
 			} else if (type === "initialized") {
-				console.log(
+				this.logger?.verbose_log(
 					`WorkerProxy: Received initialization status: ${payload}`
 				);
 			} else {
-				console.warn(
+				this.logger?.warn(
 					"WorkerProxy: Received unknown message type from worker:",
 					type
 				);
@@ -94,7 +97,7 @@ export class WorkerProxyVectorizer implements IVectorizer {
 		};
 
 		this.worker.onerror = (error: ErrorEvent) => {
-			console.error("WorkerProxy: Uncaught error in worker:", error);
+			this.logger?.error("WorkerProxy: Uncaught error in worker:", error);
 			new Notice(
 				"A critical error occurred in the vectorizer worker. Check console."
 			);
@@ -114,7 +117,9 @@ export class WorkerProxyVectorizer implements IVectorizer {
 	// Worker の初期化が完了するのを待つ
 	async ensureInitialized(): Promise<void> {
 		if (!this.isWorkerInitialized) {
-			console.log("WorkerProxy: Waiting for worker initialization...");
+			this.logger?.verbose_log(
+				"WorkerProxy: Waiting for worker initialization..."
+			);
 			await this.initializationPromise;
 		}
 	}
@@ -145,7 +150,7 @@ export class WorkerProxyVectorizer implements IVectorizer {
 
 	// プラグインアンロード時に Worker を終了
 	terminate(): void {
-		console.log("WorkerProxy: Terminating worker...");
+		this.logger?.verbose_log("WorkerProxy: Terminating worker...");
 		this.worker.terminate();
 		this.isWorkerInitialized = false;
 		// 保留中の Promise を reject

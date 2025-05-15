@@ -1,11 +1,16 @@
 import type { PGliteProvider } from "../storage/pglite/PGliteProvider";
 import type { PGliteTableManager } from "../storage/pglite/PGliteTableManager";
+import { LoggerService } from "../../shared/services/LoggerService";
 
 export class StorageManagementService {
+	private logger: LoggerService | null;
 	constructor(
 		private provider: PGliteProvider,
-		private tableManager: PGliteTableManager
-	) {}
+		private tableManager: PGliteTableManager,
+		logger: LoggerService | null
+	) {
+		this.logger = logger;
+	}
 
 	public async rebuildStorage(
 		onProgress?: (message: string) => void
@@ -35,11 +40,11 @@ export class StorageManagementService {
 			await this.tableManager.createTable(false);
 
 			if (onProgress) onProgress("Storage rebuild complete.");
-			console.log(
+			this.logger?.verbose_log(
 				"Storage rebuild completed by StorageManagementService."
 			);
 		} catch (error) {
-			console.error(
+			this.logger?.error(
 				"Failed to rebuild storage in StorageManagementService:",
 				error
 			);

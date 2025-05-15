@@ -44,5 +44,25 @@ export class VectorizerSettingTab extends PluginSettingTab {
 						new DiscardDBModal(this.app, this.plugin).open();
 					})
 			);
+		new Setting(containerEl)
+			.setName("Enable Verbose Logging")
+			.setDesc("Enable detailed logging for development purposes.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(
+						this.plugin.settings.verboseLoggingEnabled || false
+					) // settingsから現在の値を取得
+					.onChange(async (value) => {
+						this.plugin.settings.verboseLoggingEnabled = value;
+						await this.plugin.saveSettings();
+						// LoggerServiceに設定変更を通知
+						if (this.plugin.logger) {
+							// nullチェックを追加
+							this.plugin.logger.updateSettings({
+								verboseLoggingEnabled: value,
+							});
+						}
+					})
+			);
 	}
 }

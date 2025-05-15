@@ -2,6 +2,7 @@ import { PGliteInterface, Transaction } from "@electric-sql/pglite";
 import { PGliteProvider } from "./PGliteProvider";
 import { PGliteTableManager } from "./PGliteTableManager";
 import { EMBEDDINGS_TABLE_NAME } from "../../../shared/constants/appConstants";
+import { LoggerService } from "../../../shared/services/LoggerService";
 
 import {
 	VectorItem,
@@ -11,16 +12,20 @@ import {
 
 export class PGliteVectorStore {
 	private tableManager: PGliteTableManager;
+	private logger: LoggerService | null; // logger プロパティを追加
 
 	constructor(
 		private provider: PGliteProvider,
 		private dimensions: number,
-		private tableName: string = EMBEDDINGS_TABLE_NAME
+		private tableName: string = EMBEDDINGS_TABLE_NAME,
+		logger: LoggerService | null
 	) {
+		this.logger = logger;
 		this.tableManager = new PGliteTableManager(
 			this.provider,
 			this.tableName,
-			this.dimensions
+			this.dimensions,
+			this.logger
 		);
 	}
 
@@ -31,11 +36,15 @@ export class PGliteVectorStore {
 
 	private getClient(): PGliteInterface {
 		if (!this.provider.isReady()) {
-			throw new Error("PGlite provider is not ready");
+			const error = new Error("PGlite provider is not ready");
+			this.logger?.error("PGlite client error:", error);
+			throw error;
 		}
 		const client = this.provider.getClient();
 		if (!client) {
-			throw new Error("PGlite client is not available");
+			const error = new Error("PGlite client is not available");
+			this.logger?.error("PGlite client error:", error);
+			throw error;
 		}
 		return client;
 	}
@@ -53,7 +62,8 @@ export class PGliteVectorStore {
 		this.tableManager = new PGliteTableManager(
 			this.provider,
 			this.tableName,
-			this.dimensions
+			this.dimensions,
+			this.logger
 		);
 	}
 
@@ -72,7 +82,8 @@ export class PGliteVectorStore {
 			this.tableManager = new PGliteTableManager(
 				this.provider,
 				this.tableName,
-				this.dimensions
+				this.dimensions,
+				this.logger
 			);
 		}
 		await this.tableManager.createTable(force);
@@ -80,7 +91,7 @@ export class PGliteVectorStore {
 
 	async insertVectors(items: VectorItem[]): Promise<void> {
 		if (items.length === 0) {
-			console.log("No vectors to insert.");
+			this.logger?.verbose_log("No vectors to insert.");
 			return;
 		}
 
@@ -112,11 +123,11 @@ export class PGliteVectorStore {
 
 		try {
 			await pgClient.query(sql, params);
-			console.log(
+			this.logger?.verbose_log(
 				`Successfully inserted ${items.length} vectors into ${this.tableName}.`
 			);
 		} catch (error) {
-			console.error(
+			this.logger?.error(
 				`Error inserting batch of vectors into ${this.tableName}:`,
 				error
 			);
@@ -129,7 +140,7 @@ export class PGliteVectorStore {
 		batchSize: number = 100
 	): Promise<void> {
 		if (items.length === 0) {
-			console.log("No vectors to upsert.");
+			this.logger?.verbose_log("No vectors to upsert.");
 			return;
 		}
 
@@ -156,7 +167,7 @@ export class PGliteVectorStore {
 							)} WHERE file_path IN (${placeholders})`,
 							batchFilePaths
 						);
-						console.log(
+						this.logger?.verbose_log(
 							`Deleted vectors for ${batchFilePaths.length} files from ${this.tableName}`
 						);
 					}
@@ -192,21 +203,21 @@ export class PGliteVectorStore {
                         VALUES ${valuePlaceholders.join(", ")}
                     `;
 						await tx.query(insertSql, params);
-						console.log(
+						this.logger?.verbose_log(
 							`Inserted ${batchItems.length} vectors into ${this.tableName}`
 						);
 					}
 				}
 			})
 			.catch((error) => {
-				console.error(
+				this.logger?.error(
 					`Error in upsertVectors transaction for ${this.tableName}:`,
 					error
 				);
 				throw error;
 			});
 
-		console.log(
+		this.logger?.verbose_log(
 			`Successfully upserted all ${items.length} vectors into ${this.tableName}`
 		);
 	}
@@ -235,7 +246,7 @@ export class PGliteVectorStore {
 			);
 			return result.rows;
 		} catch (error) {
-			console.error(
+			this.logger?.error(
 				`Error searching similar vectors in ${this.tableName}:`,
 				error
 			);
