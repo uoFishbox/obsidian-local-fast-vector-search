@@ -1,5 +1,5 @@
 import { IVectorizer } from "./IVectorizer";
-import { WorkerProxyVectorizer } from "./WorkerProxyVectorizer";
+import { WorkerProxyVectorizer } from "./WorkerVectorizerProxy";
 
 export interface TransformersVectorizerOptions {
 	// modelName: string;
