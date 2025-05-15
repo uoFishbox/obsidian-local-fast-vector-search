@@ -3,5 +3,5 @@ export interface PluginSettings {
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
-	provider: "transformer",
+	provider: "transformers.js",
 };
