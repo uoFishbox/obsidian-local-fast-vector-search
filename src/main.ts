@@ -1,4 +1,3 @@
-// src/main.ts
 import {
 	Plugin,
 	Notice,
@@ -15,7 +14,11 @@ import { PGliteProvider } from "./storage/PGliteProvider";
 import { PGliteVectorStore } from "./storage/PGliteVectorStore";
 import { SearchModal } from "./ui/SearchModal";
 import { DB_NAME } from "./constants";
-const EMBEDDING_DIMENSION = 512;
+import { TextChunker } from "./chunkers/TextChunker";
+import { VectorizationService } from "./services/VectorizationService";
+import { SearchService } from "./services/SearchService";
+import { StorageManagementService } from "./services/StorageManagementService";
+const EMBEDDING_DIMENSION = 256;
 
 interface PluginSettings {
 	provider: string;
@@ -35,6 +38,12 @@ export default class MyVectorPlugin extends Plugin {
 	pgProvider: PGliteProvider | null = null;
 	vectorStore: PGliteVectorStore | null = null;
 	private isDbReady = false;
+
+	// Service instances
+	vectorizationService: VectorizationService | null = null;
+	searchService: SearchService | null = null;
+	storageManagementService: StorageManagementService | null = null;
+	textChunker: TextChunker | null = null; // TextChunkerもここで初期化
 
 	async onload() {
 		this.settings = Object.assign(
@@ -146,8 +155,12 @@ export default class MyVectorPlugin extends Plugin {
 			this.isWorkerReady &&
 			this.isDbReady &&
 			this.vectorizer &&
-			this.commandHandler &&
-			this.vectorStore
+			this.vectorStore &&
+			this.textChunker &&
+			this.vectorizationService &&
+			this.searchService &&
+			this.storageManagementService &&
+			this.commandHandler
 		) {
 			return;
 		}
@@ -229,25 +242,66 @@ export default class MyVectorPlugin extends Plugin {
 				);
 			}
 
-			// 3. CommandHandler の初期化
+			// 3. Initialize TextChunker
+			if (!this.textChunker) {
+				this.textChunker = new TextChunker({}); // Use default options or load from settings
+				console.log("TextChunker initialized.");
+			}
+
+			// 4. Initialize Services (after vectorizer, vectorStore, textChunker are ready)
 			if (
 				this.isWorkerReady &&
 				this.isDbReady &&
 				this.vectorizer &&
 				this.vectorStore &&
+				this.textChunker
+			) {
+				if (!this.vectorizationService) {
+					this.vectorizationService = new VectorizationService(
+						this.app,
+						this.vectorizer,
+						this.vectorStore,
+						this.textChunker
+					);
+					console.log("VectorizationService initialized.");
+				}
+				if (!this.searchService) {
+					this.searchService = new SearchService(
+						this.vectorizer,
+						this.vectorStore
+					);
+					console.log("SearchService initialized.");
+				}
+				if (!this.storageManagementService) {
+					this.storageManagementService =
+						new StorageManagementService(this.vectorStore);
+					console.log("StorageManagementService initialized.");
+				}
+			}
+
+			// 5. CommandHandler の初期化 (after services are ready)
+			if (
+				this.vectorizationService &&
+				this.searchService &&
+				this.storageManagementService &&
 				!this.commandHandler
 			) {
 				this.commandHandler = new CommandHandler(
 					this.app,
-					this.vectorizer,
-					this.vectorStore
+					this.vectorizationService,
+					this.searchService,
+					this.storageManagementService
 				);
-				console.log("CommandHandler initialized.");
+				console.log("CommandHandler initialized with new services.");
 			}
 
 			if (
 				!this.isWorkerReady ||
 				!this.isDbReady ||
+				!this.textChunker ||
+				!this.vectorizationService ||
+				!this.searchService ||
+				!this.storageManagementService ||
 				!this.commandHandler
 			) {
 				throw new Error(
@@ -268,6 +322,10 @@ export default class MyVectorPlugin extends Plugin {
 			this.pgProvider = null;
 			this.vectorStore = null;
 			this.commandHandler = null;
+			this.textChunker = null;
+			this.vectorizationService = null;
+			this.searchService = null;
+			this.storageManagementService = null;
 			throw error;
 		} finally {
 			console.log("Resource initialization attempt finished.");
@@ -291,6 +349,10 @@ export default class MyVectorPlugin extends Plugin {
 		this.commandHandler = null;
 		this.pgProvider = null;
 		this.vectorStore = null;
+		this.textChunker = null;
+		this.vectorizationService = null;
+		this.searchService = null;
+		this.storageManagementService = null;
 		this.initializationPromise = null;
 		this.isWorkerReady = false;
 		this.isDbReady = false;

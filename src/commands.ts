@@ -1,27 +1,27 @@
 import { Notice, App } from "obsidian";
-import type { IVectorizer } from "./vectorizers/IVectorizer";
-import { TextChunker } from "./chunkers/TextChunker";
-import type {
-	PGliteVectorStore,
-	VectorItem,
-	SimilarityResultItem,
-} from "./storage/PGliteVectorStore";
+import type { VectorizationService } from "./services/VectorizationService";
+import type { SearchService } from "./services/SearchService";
+import type { StorageManagementService } from "./services/StorageManagementService";
+import type { SimilarityResultItem } from "./storage/PGliteVectorStore";
+// SearchModal は CommandHandler 経由で SearchService を利用する形でも良いし、
+// 直接 SearchService を渡す形でも良い。ここでは CommandHandler が仲介する。
 
 export class CommandHandler {
 	private app: App;
-	private vectorizer: IVectorizer;
-	private vectorStore: PGliteVectorStore;
-	private textChunker: TextChunker;
+	private vectorizationService: VectorizationService;
+	private searchService: SearchService;
+	private storageManagementService: StorageManagementService;
 
 	constructor(
 		app: App,
-		vectorizer: IVectorizer,
-		vectorStore: PGliteVectorStore
+		vectorizationService: VectorizationService,
+		searchService: SearchService,
+		storageManagementService: StorageManagementService
 	) {
 		this.app = app;
-		this.vectorizer = vectorizer;
-		this.vectorStore = vectorStore;
-		this.textChunker = new TextChunker({});
+		this.vectorizationService = vectorizationService;
+		this.searchService = searchService;
+		this.storageManagementService = storageManagementService;
 	}
 
 	private _showNotice(
@@ -36,45 +36,7 @@ export class CommandHandler {
 			}
 			return existingNotice;
 		}
-		const newNotice = new Notice(message, timeout);
-		return newNotice;
-	}
-
-	private async _generateVectorItemsFromFileContent(
-		filePath: string,
-		content: string
-	): Promise<VectorItem[]> {
-		const chunkInfos = this.textChunker.chunkText(content);
-		if (chunkInfos.length === 0) {
-			return [];
-		}
-
-		const sentences = chunkInfos.map((chunk) => chunk.chunk);
-		const vectors = await this.vectorizer.vectorizeSentences(sentences);
-
-		return chunkInfos
-			.map((chunkInfo, i) => {
-				if (vectors[i]) {
-					return {
-						filePath: filePath,
-						chunkOffsetStart: chunkInfo.metadata.startPosition,
-						chunkOffsetEnd: chunkInfo.metadata.endPosition,
-						vector: vectors[i],
-					};
-				}
-				return null;
-			})
-			.filter((item): item is VectorItem => item !== null);
-	}
-
-	private async _saveVectorItemsToStore(
-		itemsToInsert: VectorItem[]
-	): Promise<number> {
-		if (itemsToInsert.length === 0) {
-			return 0;
-		}
-		await this.vectorStore.upsertVectors(itemsToInsert);
-		return itemsToInsert.length;
+		return new Notice(message, timeout);
 	}
 
 	async vectorizeAllNotes(): Promise<void> {
@@ -88,69 +50,14 @@ export class CommandHandler {
 			"Starting vectorization for all notes..."
 		);
 		const startAll = performance.now();
-		let totalVectorsProcessed = 0;
-		const allItemsToInsert: VectorItem[] = [];
 
 		try {
-			for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
-				const file = files[fileIndex];
-				const progressPercent = (
-					((fileIndex + 1) / files.length) *
-					100
-				).toFixed(1);
-				let noticeMessage = `Processing file ${fileIndex + 1}/${
-					files.length
-				} (${progressPercent}%): ${file.basename}`;
-
-				try {
-					const content = await this.app.vault.cachedRead(file);
-					if (!content.trim()) {
-						console.log(`Skipping empty file: ${file.path}`);
-						noticeMessage += " (skipped empty)";
-						this._showNotice(noticeMessage, 0, vectorizeNotice);
-						continue;
+			const { totalVectorsProcessed } =
+				await this.vectorizationService.vectorizeAllNotes(
+					(message: string, isOverallProgress?: boolean) => {
+						this._showNotice(message, 0, vectorizeNotice);
 					}
-					const itemsFromFile =
-						await this._generateVectorItemsFromFileContent(
-							file.path,
-							content
-						);
-					allItemsToInsert.push(...itemsFromFile);
-					this._showNotice(noticeMessage, 0, vectorizeNotice);
-				} catch (fileError) {
-					console.error(
-						`Failed to process file ${file.path}:`,
-						fileError
-					);
-					this._showNotice(
-						`Skipping file ${file.basename} due to error. Check console.`,
-						3000
-					);
-					noticeMessage += " (skipped due to error)";
-					this._showNotice(noticeMessage, 0, vectorizeNotice);
-					continue;
-				}
-			}
-
-			if (allItemsToInsert.length > 0) {
-				this._showNotice(
-					`Saving ${allItemsToInsert.length} total vectors from all notes...`,
-					0,
-					vectorizeNotice
 				);
-				totalVectorsProcessed = await this._saveVectorItemsToStore(
-					allItemsToInsert
-				);
-				console.log(
-					`Upserted ${totalVectorsProcessed} vectors in batch.`
-				);
-			} else {
-				this._showNotice(
-					"No new vectors to save from any notes.",
-					0,
-					vectorizeNotice
-				);
-			}
 
 			const totalTime = (performance.now() - startAll) / 1000;
 			this._showNotice(
@@ -171,7 +78,9 @@ export class CommandHandler {
 				error
 			);
 			this._showNotice(
-				"Vectorization failed during processing. Check console.",
+				`Vectorization failed: ${
+					error instanceof Error ? error.message : "Unknown error"
+				}. Check console.`,
 				5000,
 				vectorizeNotice
 			);
@@ -182,31 +91,25 @@ export class CommandHandler {
 		let rebuildStatusNotice = this._showNotice(
 			"Rebuilding all indexes... This may take a while."
 		);
-
 		try {
-			this._showNotice(
-				"Rebuilding storage and clearing old index data...",
-				0,
-				rebuildStatusNotice
+			await this.storageManagementService.rebuildStorage(
+				(message: string) => {
+					this._showNotice(message, 0, rebuildStatusNotice);
+				}
 			);
-			console.log(
-				"Rebuilding index: Calling vectorStore.rebuildStorage()."
-			);
-			await this.vectorStore.rebuildStorage();
-			console.log("Storage rebuild completed by vectorStore.");
 
 			this._showNotice(
 				"Storage cleared. Re-vectorizing all notes...",
 				0,
 				rebuildStatusNotice
 			);
-
+			// vectorizeAllNotes が独自の Notice を出すため、一度 hide するか、
+			// vectorizeAllNotes の Notice 更新を rebuildStatusNotice に委譲する
 			rebuildStatusNotice.hide();
-			await this.vectorizeAllNotes();
+			await this.vectorizeAllNotes(); // This will show its own notices
 
-			console.log(
-				"Index rebuild process completed successfully by vectorizeAllNotes."
-			);
+			console.log("Index rebuild process completed successfully.");
+			// vectorizeAllNotes の成功 Notice が最後に出るので、ここでは追加の Notice は不要
 		} catch (error: any) {
 			console.error("Failed to rebuild all indexes:", error);
 			this._showNotice(
@@ -219,6 +122,7 @@ export class CommandHandler {
 		}
 	}
 
+	// このメソッドは SearchModal から呼び出される
 	async searchSimilarNotes(
 		query: string,
 		limit: number = 10
@@ -227,28 +131,8 @@ export class CommandHandler {
 			this._showNotice("Query cannot be empty.", 3000);
 			return [];
 		}
-
 		try {
-			const queryVectorArray = await this.vectorizer.vectorizeSentences([
-				query,
-			]);
-			if (
-				!queryVectorArray ||
-				queryVectorArray.length === 0 ||
-				!queryVectorArray[0]
-			) {
-				throw new Error(
-					"Failed to vectorize query. The vectorizer might not be ready, the query could be invalid, or the resulting vector is empty."
-				);
-			}
-			const queryVector = queryVectorArray[0];
-
-			const results = await this.vectorStore.searchSimilar(
-				queryVector,
-				limit
-			);
-
-			return results;
+			return await this.searchService.search(query, limit);
 		} catch (error) {
 			console.error("Error during similarity search:", error);
 			this._showNotice(
@@ -257,7 +141,7 @@ export class CommandHandler {
 				}. Check console.`,
 				5000
 			);
-			throw error;
+			throw error; // Modal側でさらにエラーハンドリングする場合や、結果表示を制御する場合
 		}
 	}
 }
