@@ -1,8 +1,6 @@
 import type { IVectorizer } from "../vectorizers/IVectorizer";
-import type {
-	PGliteVectorStore,
-	SimilarityResultItem,
-} from "../storage/pglite/PGliteVectorStore";
+import type { PGliteVectorStore } from "../storage/pglite/PGliteVectorStore";
+import type { SimilarityResultItem } from "../core/storage/types";
 
 export class SearchService {
 	constructor(

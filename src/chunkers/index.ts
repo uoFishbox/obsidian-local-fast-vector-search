@@ -1,7 +1,6 @@
-export {
-	TextChunker,
-	type ChunkInfo,
-	type ChunkMetadata,
-	type ChunkingOptions,
-	splitTextToSentences,
-} from "./TextChunker";
+export { TextChunker, splitTextToSentences } from "./TextChunker";
+export type {
+	ChunkInfo,
+	ChunkMetadata,
+	ChunkingOptions,
+} from "../core/chunking/types";

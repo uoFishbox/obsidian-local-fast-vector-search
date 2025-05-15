@@ -23,13 +23,7 @@ import { PGliteTableManager } from "./storage/pglite/PGliteTableManager";
 
 const EMBEDDING_DIMENSION = 256;
 
-interface PluginSettings {
-	provider: string;
-}
-
-const DEFAULT_SETTINGS: PluginSettings = {
-	provider: "transformer",
-};
+import { PluginSettings, DEFAULT_SETTINGS } from "./pluginSettings";
 
 export default class MyVectorPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;

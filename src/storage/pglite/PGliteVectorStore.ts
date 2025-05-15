@@ -3,26 +3,11 @@ import { PGliteProvider } from "./PGliteProvider";
 import { PGliteTableManager } from "./PGliteTableManager";
 import { EMBEDDINGS_TABLE_NAME } from "../../shared/constants/appConstants";
 
-export interface VectorItem {
-	filePath: string;
-	chunkOffsetStart: number;
-	chunkOffsetEnd: number;
-	vector: number[];
-}
-
-export interface SimilarityResultItem {
-	id: number;
-	file_path: string;
-	chunk_offset_start: number | null;
-	chunk_offset_end: number | null;
-	chunk: string | null;
-	distance: number;
-}
-
-export interface SearchOptions {
-	efSearch?: number;
-	limit?: number;
-}
+import {
+	VectorItem,
+	SimilarityResultItem,
+	SearchOptions,
+} from "../../core/storage/types";
 
 export class PGliteVectorStore {
 	private tableManager: PGliteTableManager;

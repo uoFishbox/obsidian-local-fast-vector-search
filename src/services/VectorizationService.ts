@@ -1,10 +1,8 @@
 import { App, TFile } from "obsidian";
 import type { IVectorizer } from "../vectorizers/IVectorizer";
 import { TextChunker } from "../chunkers/TextChunker";
-import type {
-	PGliteVectorStore,
-	VectorItem,
-} from "../storage/pglite/PGliteVectorStore";
+import type { PGliteVectorStore } from "../storage/pglite/PGliteVectorStore";
+import type { VectorItem } from "../core/storage/types";
 
 export class VectorizationService {
 	constructor(
