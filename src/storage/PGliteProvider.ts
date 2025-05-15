@@ -1,4 +1,3 @@
-// src/storage/PGliteProvider.ts
 import { Plugin, normalizePath, requestUrl } from "obsidian";
 import { PGlite } from "@electric-sql/pglite";
 import { IdbFs } from "@electric-sql/pglite";
@@ -115,7 +114,7 @@ export class PGliteProvider {
 				console.log("Closed existing PGlite client before discarding.");
 			}
 
-			await deleteDB(this.dbName);
+			await deleteDB("/pglite/" + this.dbName);
 			console.log(`Successfully discarded database: ${this.dbName}`);
 
 			this.pgClient = null;
