@@ -2,7 +2,7 @@ import type {
 	PreTrainedModelType,
 	PreTrainedTokenizerType,
 	TensorType,
-} from "../types";
+} from "../shared/types/core";
 
 // @ts-ignore global self for Worker
 const worker = self as DedicatedWorkerGlobalScope;

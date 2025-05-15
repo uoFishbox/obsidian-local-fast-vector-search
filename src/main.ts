@@ -13,7 +13,7 @@ import { WorkerProxyVectorizer } from "./vectorizers/WorkerProxyVectorizer";
 import { PGliteProvider } from "./storage/PGliteProvider";
 import { PGliteVectorStore } from "./storage/PGliteVectorStore";
 import { SearchModal } from "./ui/SearchModal";
-import { DB_NAME } from "./constants";
+import { DB_NAME } from "./shared/constants/appConstants";
 import { TextChunker } from "./chunkers/TextChunker";
 import { VectorizationService } from "./services/VectorizationService";
 import { SearchService } from "./services/SearchService";

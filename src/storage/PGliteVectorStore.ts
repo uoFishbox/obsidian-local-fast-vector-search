@@ -1,7 +1,7 @@
 import { PGliteInterface, Transaction } from "@electric-sql/pglite";
 import { PGliteProvider } from "./PGliteProvider";
 import { PGliteTableManager } from "./PGliteTableManager";
-import { EMBEDDINGS_TABLE_NAME } from "../constants";
+import { EMBEDDINGS_TABLE_NAME } from "../shared/constants/appConstants";
 
 export interface VectorItem {
 	filePath: string;
