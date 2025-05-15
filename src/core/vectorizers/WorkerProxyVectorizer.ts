@@ -1,6 +1,6 @@
 import { IVectorizer } from "./IVectorizer";
 import { Notice } from "obsidian";
-import VectorizerWorker from "../vectorizers/vectorizer.worker?worker";
+import VectorizerWorker from "./transformersVectorizer.worker?worker";
 
 interface WorkerRequest {
 	id: string;

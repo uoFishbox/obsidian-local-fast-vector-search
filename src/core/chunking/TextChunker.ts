@@ -1,4 +1,4 @@
-import { ChunkInfo, ChunkingOptions } from "../core/chunking/types";
+import { ChunkInfo, ChunkingOptions } from "./types";
 
 const DEFAULT_CHUNKING_OPTIONS: ChunkingOptions = {
 	chunkSize: 200,
@@ -9,7 +9,6 @@ const DEFAULT_CHUNKING_OPTIONS: ChunkingOptions = {
 	sentenceJoiner: "",
 };
 
-// 文分割の結果を保持するインターフェース
 interface SentenceInfo {
 	text: string; // 文のテキスト内容
 	start: number; // 元のテキストにおける開始位置
@@ -295,7 +294,7 @@ export class TextChunker {
 		return chunks;
 	}
 
-	// 文章を文に分割するメソッド (日本語向けに改善)
+	// 文章を文に分割するメソッド (日本語向け)
 	// offset は、元のテキスト（フロントマター削除前）に対する text の開始オフセット
 	private splitToSentences(text: string, offset: number = 0): SentenceInfo[] {
 		if (!text.trim()) return [];

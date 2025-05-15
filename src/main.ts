@@ -6,20 +6,20 @@ import {
 	Setting,
 	Modal,
 } from "obsidian";
-import { IVectorizer } from "./vectorizers/IVectorizer";
-import { createTransformersVectorizer } from "./vectorizers/VectorizerFactory";
+import { IVectorizer } from "./core/vectorizers/IVectorizer";
+import { createTransformersVectorizer } from "./core/vectorizers/VectorizerFactory";
 import { CommandHandler } from "./commands";
-import { WorkerProxyVectorizer } from "./vectorizers/WorkerProxyVectorizer";
-import { PGliteProvider } from "./storage/pglite/PGliteProvider";
-import { PGliteVectorStore } from "./storage/pglite/PGliteVectorStore";
+import { WorkerProxyVectorizer } from "./core/vectorizers/WorkerProxyVectorizer";
+import { PGliteProvider } from "./core/storage/pglite/PGliteProvider";
+import { PGliteVectorStore } from "./core/storage/pglite/PGliteVectorStore";
 import { SearchModal } from "./ui/modals/SearchModal";
 import { DB_NAME } from "./shared/constants/appConstants";
-import { TextChunker } from "./chunkers/TextChunker";
+import { TextChunker } from "./core/chunking/TextChunker";
 import { NotificationService } from "./shared/services/NotificationService";
-import { VectorizationService } from "./services/VectorizationService";
-import { SearchService } from "./services/SearchService";
-import { StorageManagementService } from "./services/StorageManagementService";
-import { PGliteTableManager } from "./storage/pglite/PGliteTableManager";
+import { VectorizationService } from "./core/services/VectorizationService";
+import { SearchService } from "./core/services/SearchService";
+import { StorageManagementService } from "./core/services/StorageManagementService";
+import { PGliteTableManager } from "./core/storage/pglite/PGliteTableManager";
 
 const EMBEDDING_DIMENSION = 256;
 

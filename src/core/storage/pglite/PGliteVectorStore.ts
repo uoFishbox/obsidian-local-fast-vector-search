@@ -1,13 +1,13 @@
 import { PGliteInterface, Transaction } from "@electric-sql/pglite";
 import { PGliteProvider } from "./PGliteProvider";
 import { PGliteTableManager } from "./PGliteTableManager";
-import { EMBEDDINGS_TABLE_NAME } from "../../shared/constants/appConstants";
+import { EMBEDDINGS_TABLE_NAME } from "../../../shared/constants/appConstants";
 
 import {
 	VectorItem,
 	SimilarityResultItem,
 	SearchOptions,
-} from "../../core/storage/types";
+} from "../../storage/types";
 
 export class PGliteVectorStore {
 	private tableManager: PGliteTableManager;
