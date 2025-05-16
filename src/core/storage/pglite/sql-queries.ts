@@ -1,5 +1,6 @@
 export const SQL_QUERIES = {
 	CHECK_TABLE_EXISTS: `SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = $1)`,
+	SET_ENVIRONMENT: `SET max_parallel_maintenance_workers = 8`,
 	CHECK_COLUMN_EXISTS: `SELECT EXISTS (
 		SELECT 1
 		FROM information_schema.columns

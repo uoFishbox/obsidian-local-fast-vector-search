@@ -192,6 +192,13 @@ worker({
 		const dimensions = workerOptions.dimensions;
 		const indexName = `${tableName}_hnsw_idx`;
 
+		await dbInst.exec(SQL_QUERIES.SET_ENVIRONMENT);
+
+		postMessage({
+			type: "status",
+			payload: "Database environment set.",
+		});
+
 		postMessage({
 			type: "status",
 			payload: `Ensuring schema for table: ${tableName}, dimensions: ${dimensions}`,
