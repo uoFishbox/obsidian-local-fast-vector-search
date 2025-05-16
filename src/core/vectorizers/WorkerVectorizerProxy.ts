@@ -34,6 +34,10 @@ export class WorkerProxyVectorizer implements IVectorizer {
 			const checkInitialization = (event: MessageEvent) => {
 				const data = event.data as WorkerResponse;
 				if (data.type === "initialized") {
+					this.worker.removeEventListener(
+						"message",
+						checkInitialization
+					);
 					this.isWorkerInitialized = data.payload;
 					if (this.isWorkerInitialized) {
 						this.logger?.verbose_log(
@@ -48,6 +52,10 @@ export class WorkerProxyVectorizer implements IVectorizer {
 					}
 				} else if (data.type === "error" && !this.isWorkerInitialized) {
 					// 初期化中のエラー
+					this.worker.removeEventListener(
+						"message",
+						checkInitialization
+					);
 					this.logger?.error(
 						"WorkerVectorizerProxy: Received error during initialization:",
 						data.payload
@@ -61,7 +69,6 @@ export class WorkerProxyVectorizer implements IVectorizer {
 			};
 			this.worker.addEventListener("message", checkInitialization);
 
-			// Worker に初期化を指示
 			this.worker.postMessage({ type: "initialize" });
 		});
 	}
@@ -71,19 +78,84 @@ export class WorkerProxyVectorizer implements IVectorizer {
 			const data = event.data as WorkerResponse;
 			const { id, type, payload } = data;
 
-			if (type === "vectorizeResult" || type === "error") {
+			if (type === "vectorizeResult") {
 				const promise = this.requestPromises.get(id);
 				if (promise) {
-					if (type === "vectorizeResult") {
-						promise.resolve(payload);
-					} else {
-						promise.reject(new Error(payload));
-					}
+					promise.resolve(payload);
 					this.requestPromises.delete(id);
+				} else {
+					this.logger?.warn(
+						"WorkerVectorizerProxy: Received vectorizeResult for unknown ID:",
+						id
+					);
+				}
+			} else if (type === "error") {
+				const promise = this.requestPromises.get(id);
+				if (promise) {
+					promise.reject(
+						new Error(`Worker error for request ${id}: ${payload}`)
+					);
+					this.requestPromises.delete(id);
+				} else {
+					this.logger?.error(
+						"WorkerVectorizerProxy: Received error without ID:",
+						payload
+					);
+					if (!this.isWorkerInitialized) {
+						new Notice(
+							`Vectorizer worker initialization error: ${payload}. Check console.`
+						);
+					} else {
+						new Notice(
+							`Vectorizer worker error: ${payload}. Check console.`
+						);
+					}
 				}
 			} else if (type === "status") {
-				this.logger?.verbose_log(`[Worker Status] ${payload}`);
+				const logPayload = payload as {
+					level: "info" | "warn" | "error" | "verbose";
+					message: string;
+					args: any[];
+				};
+				if (
+					this.logger &&
+					logPayload &&
+					typeof logPayload.level === "string" &&
+					typeof logPayload.message === "string"
+				) {
+					const logMessage = `[Worker] ${logPayload.message}`;
+					const logArgs = logPayload.args || [];
+
+					switch (logPayload.level) {
+						case "info":
+							this.logger.log(logMessage, ...logArgs);
+							break;
+						case "warn":
+							this.logger.warn(logMessage, ...logArgs);
+							break;
+						case "error":
+							this.logger.error(logMessage, ...logArgs);
+							break;
+						case "verbose":
+							this.logger.verbose_log(logMessage, ...logArgs);
+							break;
+						default:
+							this.logger.log(
+								`[Worker Status] ${logMessage}`,
+								...logArgs
+							);
+							break;
+					}
+				} else {
+					this.logger?.warn(
+						"WorkerVectorizerProxy: Received unexpected status payload from worker:",
+						payload
+					);
+				}
 			} else if (type === "progress") {
+				this.logger?.verbose_log(
+					`[Worker Progress] ${JSON.stringify(payload)}`
+				);
 			} else if (type === "initialized") {
 				this.logger?.verbose_log(
 					`WorkerVectorizerProxy: Received initialization status: ${payload}`
@@ -91,7 +163,8 @@ export class WorkerProxyVectorizer implements IVectorizer {
 			} else {
 				this.logger?.warn(
 					"WorkerVectorizerProxy: Received unknown message type from worker:",
-					type
+					type,
+					payload
 				);
 			}
 		};
@@ -114,6 +187,11 @@ export class WorkerProxyVectorizer implements IVectorizer {
 			});
 			this.requestPromises.clear();
 			this.isWorkerInitialized = false;
+			// initializationPromise がまだ解決/拒否されていない場合、rejectする
+			// これは initializationPromise のリスナーが onerror を捕捉しない場合に必要
+			// 現在のコードでは initializationPromise のリスナーは error タイプも捕捉するので不要かもしれないが、安全のため
+			// this.initializationPromise.catch(() => {}).then(() => { /* check if already settled */ });
+			// より確実には、initializationPromise の reject を onerror 内でも呼ぶが、リスナーとの重複に注意が必要
 		};
 	}
 
@@ -141,12 +219,32 @@ export class WorkerProxyVectorizer implements IVectorizer {
 			this.worker.postMessage(request);
 
 			// タイムアウト処理
-			setTimeout(() => {
+			const timeoutId = setTimeout(() => {
 				if (this.requestPromises.has(id)) {
 					this.requestPromises.delete(id);
-					reject(new Error(`Request ${id} timed out.`));
+					this.logger?.error(
+						`WorkerVectorizerProxy: Request ${id} timed out.`
+					);
+					reject(
+						new Error(
+							`Vectorization request timed out after 60 seconds.`
+						)
+					);
 				}
 			}, 60000); // 一旦60秒
+
+			// Promiseが解決または拒否されたときにタイムアウトをクリア
+			const promise = this.requestPromises.get(id);
+			if (promise) {
+				promise.resolve = (value) => {
+					clearTimeout(timeoutId);
+					resolve(value);
+				};
+				promise.reject = (reason) => {
+					clearTimeout(timeoutId);
+					reject(reason);
+				};
+			}
 		});
 	}
 
