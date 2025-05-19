@@ -1,6 +1,7 @@
 import { Plugin, Notice, App, PluginSettingTab, Setting } from "obsidian";
 import MyVectorPlugin from "../main";
 import { DiscardDBModal } from "./modals/DiscardDBModal";
+import { DeleteResourcesModal } from "./modals/DeleteResourcesModal";
 
 export class VectorizerSettingTab extends PluginSettingTab {
 	plugin: MyVectorPlugin;
@@ -44,6 +45,21 @@ export class VectorizerSettingTab extends PluginSettingTab {
 						new DiscardDBModal(this.app, this.plugin).open();
 					})
 			);
+		// Setting for Deleting Resources
+		new Setting(containerEl)
+			.setName("Delete Resources")
+			.setDesc(
+				"Permanently delete cached models (Transformers.js) and PGlite resources (IndexedDB). This may free up disk space but resources will need to be re-downloaded."
+			)
+			.addButton((button) =>
+				button
+					.setButtonText("Delete Resources")
+					.setCta()
+					.onClick(() => {
+						new DeleteResourcesModal(this.app, this.plugin).open();
+					})
+			);
+
 		new Setting(containerEl)
 			.setName("Enable Verbose Logging")
 			.setDesc("Enable detailed logging for development purposes.")

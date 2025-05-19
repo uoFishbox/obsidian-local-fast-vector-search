@@ -7,6 +7,7 @@ import { WorkerProxyVectorizer } from "./core/vectorizers/WorkerVectorizerProxy"
 import { PGliteProvider } from "./core/storage/pglite/PGliteProvider";
 import { PGliteVectorStore } from "./core/storage/pglite/PGliteVectorStore";
 import { SearchModal } from "./ui/modals/SearchModal";
+import { deleteDB } from "idb";
 import {
 	DB_NAME,
 	EMBEDDINGS_TABLE_NAME,
@@ -461,6 +462,98 @@ export default class MyVectorPlugin extends Plugin {
 		if (this.logger) {
 			// nullチェックを追加
 			this.logger.updateSettings(this.settings);
+		}
+	}
+	async clearResources(): Promise<void> {
+		if (this.logger)
+			this.logger.log(
+				"Attempting to delete resources (model cache and PGlite resource cache)..."
+			);
+
+		const cacheNamePatterns = [
+			/^transformers-cache$/i,
+			/^huggingface-hub$/i,
+		];
+		let clearedSomething = false;
+		const pgliteResourceCacheName = "pglite-resources-cache";
+
+		try {
+			if (window.caches) {
+				const cacheKeys = await window.caches.keys();
+				if (this.logger)
+					this.logger.verbose_log(
+						"Available cache API keys:",
+						cacheKeys
+					);
+
+				for (const key of cacheKeys) {
+					for (const pattern of cacheNamePatterns) {
+						if (pattern.test(key)) {
+							if (this.logger)
+								this.logger.log(`Deleting cache API: ${key}`);
+							await window.caches.delete(key);
+							clearedSomething = true;
+							if (this.logger)
+								this.logger.log(
+									`Cache API ${key} deleted successfully.`
+								);
+							break;
+						}
+					}
+				}
+			} else {
+				if (this.logger)
+					this.logger.warn(
+						"Cache API is not available in this environment."
+					);
+			}
+
+			if (this.logger)
+				this.logger.log(
+					`Attempting to delete IndexedDB: ${pgliteResourceCacheName}`
+				);
+			try {
+				await deleteDB(pgliteResourceCacheName, {
+					blocked: () => {
+						if (this.logger)
+							this.logger.warn(
+								`Deletion of IndexedDB ${pgliteResourceCacheName} was blocked.`
+							);
+
+						new Notice(
+							`Deletion of PGlite resource cache (${pgliteResourceCacheName}) was blocked. Please reload Obsidian and try again.`
+						);
+					},
+				});
+				clearedSomething = true;
+				if (this.logger)
+					this.logger.log(
+						`IndexedDB ${pgliteResourceCacheName} deleted successfully (or did not exist).`
+					);
+			} catch (idbError: any) {
+				if (this.logger)
+					this.logger.error(
+						`Error deleting IndexedDB ${pgliteResourceCacheName}:`,
+						idbError
+					);
+			}
+
+			if (clearedSomething) {
+				if (this.logger)
+					this.logger.log("Resource deletion process completed.");
+			} else {
+				if (this.logger)
+					this.logger.log(
+						"No matching model caches or PGlite resource cache found to delete."
+					);
+				new Notice(
+					"No known resources (e.g., 'transformers-cache', 'huggingface-hub', 'pglite-resources-cache') found to delete."
+				);
+			}
+		} catch (error: any) {
+			if (this.logger)
+				this.logger.error("Error deleting resources:", error);
+			throw error;
 		}
 	}
 }
