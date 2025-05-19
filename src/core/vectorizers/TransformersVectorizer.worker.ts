@@ -1,3 +1,4 @@
+import { matmul } from "@huggingface/transformers";
 import type {
 	PreTrainedModelType,
 	PreTrainedTokenizerType,
@@ -58,8 +59,12 @@ async function initializeEmbeddingModel() {
 		postLogMessage("verbose", "Starting model download/load...");
 		const modelStartTime = performance.now();
 		model = await AutoModel.from_pretrained(
-			"cfsdwe/static-embedding-japanese-for-js",
+			"cfsdwe/static-embedding-japanese-ONNX-for-js",
 			{
+				//@ts-ignore
+				config: {
+					model_type: "bert",
+				},
 				device: "wasm",
 				dtype: "q8",
 				progress_callback: (progress: any) => {
@@ -78,7 +83,7 @@ async function initializeEmbeddingModel() {
 		postLogMessage("verbose", "Starting tokenizer download/load...");
 		const tokenizerStartTime = performance.now();
 		tokenizer = await AutoTokenizer.from_pretrained(
-			"cfsdwe/static-embedding-japanese-for-js"
+			"cfsdwe/static-embedding-japanese-ONNX-for-js"
 		);
 		const tokenizerEndTime = performance.now();
 		postLogMessage(
@@ -114,6 +119,8 @@ async function vectorize(sentences: string[]): Promise<number[][]> {
 	}
 
 	try {
+		// nmt normalize を適用
+		sentences = sentences.map((s) => nmtNormalize(s));
 		const inputs = tokenizer(sentences, {
 			padding: true,
 			truncation: true,
@@ -124,6 +131,7 @@ async function vectorize(sentences: string[]): Promise<number[][]> {
 
 		if (outputs.sentence_embedding instanceof Tensor) {
 			// sentence_embedding の場合
+			postLogMessage("verbose", "Using sentence_embedding");
 			embeddingTensor = outputs.sentence_embedding;
 		} else if (outputs.last_hidden_state instanceof Tensor) {
 			// last_hidden_state で平均を計算する場合 (sentence_embedding がないモデルの場合) 現状使わない
@@ -139,11 +147,18 @@ async function vectorize(sentences: string[]): Promise<number[][]> {
 
 		let resultVectors = (embeddingTensor.tolist() as number[][]).map(
 			(vec) => {
+				// ベクトルを適切なサイズに切り詰める
 				if (vec.length > VECTOR_DIMENSION) {
 					vec = vec.slice(0, VECTOR_DIMENSION);
 				}
-				const norm = Math.hypot(...vec);
-				return norm > 0 ? vec.map((x) => x / norm) : vec;
+				const magnitude = Math.sqrt(
+					vec.reduce((sum, val) => sum + val * val, 0)
+				);
+				if (magnitude > 0) {
+					vec = vec.map((val) => val / magnitude);
+				}
+
+				return vec;
 			}
 		);
 
@@ -155,6 +170,52 @@ async function vectorize(sentences: string[]): Promise<number[][]> {
 		return resultVectors;
 	} catch (error) {
 		postLogMessage("error", "Vectorization error:", error);
+		throw error;
+	}
+}
+
+async function testSelfSimilarity(): Promise<void> {
+	if (!isInitialized || !model || !tokenizer || !Tensor) {
+		throw new Error(
+			"Worker is not initialized or model/tokenizer/Tensor is missing."
+		);
+	}
+
+	postLogMessage("info", "Starting self-similarity test...");
+
+	const exampleSentences = [
+		"カレーはおいしい。",
+		"カレースープはそこそこ美味しい。",
+		"トマトジュースは好みが分かれる。",
+	];
+
+	try {
+		const vectorsArray = await vectorize(exampleSentences);
+
+		const rows = vectorsArray.length;
+		const cols = vectorsArray[0].length;
+		const flatData = vectorsArray.flat();
+		const embeddingTensor = new Tensor("float32", flatData, [rows, cols]);
+
+		const scoresTensor = await matmul(
+			embeddingTensor,
+			embeddingTensor.transpose(1, 0)
+		);
+		const scores = scoresTensor.tolist(); // 結果をJavaScriptの配列に変換
+
+		postLogMessage(
+			"info",
+			"Self-similarity scores (dot products):",
+			scores
+		);
+
+		// メモリ解放
+		embeddingTensor.dispose();
+		scoresTensor.dispose();
+
+		postLogMessage("info", "Self-similarity test completed.");
+	} catch (error) {
+		postLogMessage("error", "Self-similarity test error:", error);
 		throw error;
 	}
 }
@@ -177,6 +238,27 @@ worker.onmessage = async (event: MessageEvent) => {
 				const vectors = await vectorize(payload as string[]);
 				postMessage({ type: "vectorizeResult", payload: vectors, id });
 				break;
+			case "test": // 新しいケース
+				if (!isInitialized) {
+					postLogMessage(
+						"warn",
+						"Test command received but worker not initialized. Please initialize first."
+					);
+					postMessage({
+						type: "error",
+						payload: "Worker not initialized. Cannot run test.",
+						id,
+					});
+					return;
+				}
+				await testSelfSimilarity();
+				postMessage({
+					type: "testResult",
+					payload:
+						"Test completed successfully. Check logs for scores.",
+					id,
+				});
+				break;
 			default:
 				postLogMessage("warn", "Unknown message type:", type);
 		}
@@ -185,3 +267,38 @@ worker.onmessage = async (event: MessageEvent) => {
 		postMessage({ type: "error", payload: error.message, id });
 	}
 };
+
+function nmtNormalize(text: string): string {
+	let normalizedText = text;
+
+	// 1. Filter (remove) specific control characters.
+	// These correspond to:
+	// 0x0001..=0x0008  (\u{1}-\u{8})
+	// 0x000B           (\u{B})
+	// 0x000E..=0x001F  (\u{E}-\u{1F})
+	// 0x007F           (\u{7F})
+	// 0x008F           (\u{8F})
+	// 0x009F           (\u{9F})
+	const controlCharsRegex =
+		/[\u{1}-\u{8}\u{B}\u{E}-\u{1F}\u{7F}\u{8F}\u{9F}]/gu;
+	normalizedText = normalizedText.replace(controlCharsRegex, "");
+
+	// 2. Map other specific code points to a single space ' '.
+	// These correspond to:
+	// 0x0009 (TAB)
+	// 0x000A (LF)
+	// 0x000C (FF)
+	// 0x000D (CR)
+	// 0x1680 (OGHAM SPACE MARK)
+	// 0x200B..=0x200F (ZERO WIDTH SPACE, ZWNJ, ZWJ, LRM, RLM)
+	// 0x2028 (LINE SEPARATOR)
+	// 0x2029 (PARAGRAPH SEPARATOR)
+	// 0x2581 (LOWER ONE EIGHTH BLOCK)
+	// 0xFEFF (ZERO WIDTH NO-BREAK SPACE / BOM)
+	// 0xFFFD (REPLACEMENT CHARACTER)
+	const mapToSpaceRegex =
+		/[\u{0009}\u{000A}\u{000C}\u{000D}\u{1680}\u{200B}-\u{200F}\u{2028}\u{2029}\u{2581}\u{FEFF}\u{FFFD}]/gu;
+	normalizedText = normalizedText.replace(mapToSpaceRegex, " ");
+
+	return normalizedText;
+}

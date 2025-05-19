@@ -6,4 +6,5 @@ export interface IVectorizer {
 	 * @returns Promise resolving to array of normalized vectors
 	 */
 	vectorizeSentences(sentences: string[]): Promise<number[][]>;
+	testSimilarity(): void;
 }

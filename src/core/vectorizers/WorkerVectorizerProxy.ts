@@ -5,12 +5,18 @@ import { LoggerService } from "../../shared/services/LoggerService";
 
 interface WorkerRequest {
 	id: string;
-	type: "vectorize";
+	type: "vectorize" | "test";
 	payload: string[];
 }
 interface WorkerResponse {
 	id: string;
-	type: "vectorizeResult" | "error" | "status" | "progress" | "initialized";
+	type:
+		| "vectorizeResult"
+		| "error"
+		| "status"
+		| "progress"
+		| "initialized"
+		| "testResult";
 	payload: any;
 }
 
@@ -86,6 +92,18 @@ export class WorkerProxyVectorizer implements IVectorizer {
 				} else {
 					this.logger?.warn(
 						"WorkerVectorizerProxy: Received vectorizeResult for unknown ID:",
+						id
+					);
+				}
+			} else if (type === "testResult") {
+				// テスト結果の処理
+				const promise = this.requestPromises.get(id);
+				if (promise) {
+					promise.resolve(payload);
+					this.requestPromises.delete(id);
+				} else {
+					this.logger?.warn(
+						"WorkerVectorizerProxy: Received testResult for unknown ID:",
 						id
 					);
 				}
@@ -232,6 +250,47 @@ export class WorkerProxyVectorizer implements IVectorizer {
 					);
 				}
 			}, 60000); // 一旦60秒
+
+			// Promiseが解決または拒否されたときにタイムアウトをクリア
+			const promise = this.requestPromises.get(id);
+			if (promise) {
+				promise.resolve = (value) => {
+					clearTimeout(timeoutId);
+					resolve(value);
+				};
+				promise.reject = (reason) => {
+					clearTimeout(timeoutId);
+					reject(reason);
+				};
+			}
+		});
+	}
+
+	/**
+	 * テスト用のメソッド - ワーカー内で自己類似度テストを実行します
+	 * @returns テスト結果を示す Promise
+	 */
+	async testSimilarity(): Promise<string> {
+		await this.ensureInitialized();
+
+		return new Promise((resolve, reject) => {
+			const id = crypto.randomUUID();
+			this.requestPromises.set(id, { resolve, reject });
+
+			this.worker.postMessage({ id, type: "test" });
+
+			// タイムアウト処理
+			const timeoutId = setTimeout(() => {
+				if (this.requestPromises.has(id)) {
+					this.requestPromises.delete(id);
+					this.logger?.error(
+						`WorkerVectorizerProxy: Test request ${id} timed out.`
+					);
+					reject(
+						new Error(`Test request timed out after 30 seconds.`)
+					);
+				}
+			}, 30000); // 30秒
 
 			// Promiseが解決または拒否されたときにタイムアウトをクリア
 			const promise = this.requestPromises.get(id);

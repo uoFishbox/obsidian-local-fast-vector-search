@@ -156,6 +156,37 @@ export default class MyVectorPlugin extends Plugin {
 				await this.commandHandler.rebuildAllIndexes();
 			},
 		});
+
+		this.addCommand({
+			id: "test-vectorization",
+			name: "Test vectorization (Worker)",
+			callback: async () => {
+				try {
+					await this.ensureResourcesInitialized();
+				} catch (error) {
+					console.error(
+						"Resource initialization check failed for test:",
+						error
+					);
+					new Notice(
+						"Resources are not ready for test. Check console."
+					);
+					return;
+				}
+				if (!this.commandHandler) {
+					new Notice(
+						"Command handler not ready for test. Please try reloading the plugin."
+					);
+					return;
+				}
+
+				if (!this.vectorizer) {
+					new Notice("Vectorizer not ready for test.");
+					return;
+				}
+				await this.vectorizer.testSimilarity();
+			},
+		});
 	}
 
 	async ensureResourcesInitialized(): Promise<void> {
