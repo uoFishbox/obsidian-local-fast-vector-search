@@ -18,7 +18,7 @@ import { SearchService } from "./core/services/SearchService";
 import { StorageManagementService } from "./core/services/StorageManagementService";
 import { PGliteTableManager } from "./core/storage/pglite/PGliteTableManager";
 
-const EMBEDDING_DIMENSION = 256;
+const EMBEDDING_DIMENSION = 384;
 
 import { PluginSettings, DEFAULT_SETTINGS } from "./pluginSettings";
 import { VectorizerSettingTab } from "./ui/settings";

@@ -40,7 +40,7 @@ let tokenizer: PreTrainedTokenizerType | null = null;
 let Tensor: typeof import("@huggingface/transformers").Tensor | null = null;
 let isInitialized = false;
 let isInitializing = false;
-const VECTOR_DIMENSION = 256; // ベクトルの次元数
+const VECTOR_DIMENSION = 384; // ベクトルの次元数
 
 async function initializeEmbeddingModel() {
 	if (isInitialized || isInitializing) return;
