@@ -189,20 +189,10 @@ export class IntegratedWorkerProxy {
 	}
 
 	// 公開メソッド（現在はスケルトンのみ）
-	async vectorizeAndStore(
-		documents: Array<{
-			id: string;
-			content: string;
-			metadata?: Record<string, any>;
-		}>
-	): Promise<{
-		success: boolean;
-		processedCount: number;
-		errors?: string[];
-	}> {
+	async vectorizeSentences(sentences: string[]): Promise<number[][]> {
 		return this.sendRequest({
-			type: "vectorizeAndStore",
-			payload: { documents },
+			type: "vectorizeSentences",
+			payload: { sentences },
 		});
 	}
 

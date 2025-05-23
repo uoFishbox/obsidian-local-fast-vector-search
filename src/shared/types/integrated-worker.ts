@@ -20,6 +20,13 @@ export interface InitializeRequest extends BaseRequest {
 	};
 }
 
+export interface VectorizeSentencesRequest extends BaseRequest {
+	type: "vectorizeSentences";
+	payload: {
+		sentences: string[];
+	};
+}
+
 export interface VectorizeAndStoreRequest extends BaseRequest {
 	type: "vectorizeAndStore";
 	payload: {
@@ -60,6 +67,7 @@ export interface CloseDbRequest extends BaseRequest {
 // ユニオン型でリクエストをまとめる
 export type WorkerRequest =
 	| InitializeRequest
+	| VectorizeSentencesRequest
 	| VectorizeAndStoreRequest
 	| SearchRequest
 	| RebuildDbRequest
@@ -70,6 +78,11 @@ export type WorkerRequest =
 export interface InitializedResponse extends BaseResponse {
 	type: "initialized";
 	payload: boolean;
+}
+
+export interface VectorizeSentencesResponse extends BaseResponse {
+	type: "vectorizeSentencesResult";
+	payload: number[][];
 }
 
 export interface VectorizeAndStoreResponse extends BaseResponse {
@@ -133,6 +146,7 @@ export interface ProgressResponse extends BaseResponse {
 // ユニオン型でレスポンスをまとめる
 export type WorkerResponse =
 	| InitializedResponse
+	| VectorizeSentencesResponse
 	| VectorizeAndStoreResponse
 	| SearchResult
 	| RebuildDbResponse

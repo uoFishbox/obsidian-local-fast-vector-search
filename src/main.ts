@@ -186,11 +186,11 @@ export default class MyVectorPlugin extends Plugin {
 					return;
 				}
 
-				if (!this.vectorizer) {
-					new Notice("Vectorizer not ready for test.");
+				if (!this.proxy) {
+					new Notice("IntegratedWorkerProxy not ready for test.");
 					return;
 				}
-				await this.vectorizer.testSimilarity();
+				await this.proxy.testSimilarity();
 			},
 		});
 	}
