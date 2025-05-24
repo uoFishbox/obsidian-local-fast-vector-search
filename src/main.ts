@@ -130,7 +130,8 @@ export default class MyVectorPlugin extends Plugin {
 				new SearchModal(
 					this.app,
 					this.commandHandler,
-					this.notificationService
+					this.notificationService,
+					this.settings
 				).open();
 			},
 		});

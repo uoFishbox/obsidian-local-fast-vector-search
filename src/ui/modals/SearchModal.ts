@@ -2,6 +2,7 @@ import { App, Modal, Setting, TFile } from "obsidian";
 import { CommandHandler } from "../../commands";
 import type { SimilarityResultItem } from "../../core/storage/types";
 import { NotificationService } from "../../shared/services/NotificationService";
+import { PluginSettings } from "../../pluginSettings";
 
 export class SearchModal extends Modal {
 	private commandHandler: CommandHandler;
@@ -13,11 +14,13 @@ export class SearchModal extends Modal {
 	constructor(
 		app: App,
 		commandHandler: CommandHandler,
-		notificationService: NotificationService
+		notificationService: NotificationService,
+		private pluginSettings: PluginSettings
 	) {
 		super(app);
 		this.commandHandler = commandHandler;
 		this.notificationService = notificationService;
+		this.pluginSettings = pluginSettings;
 		this.modalEl.addClass("vector-search-modal");
 	}
 
@@ -73,8 +76,8 @@ export class SearchModal extends Modal {
 		try {
 			this.results = await this.commandHandler.searchSimilarNotes(
 				this.query,
-				100
-			); // Search top 10
+				this.pluginSettings.searchResultLimit
+			);
 			await this.renderResults();
 			this.notificationService.showNotice(
 				`Found ${this.results.length} similar notes.`

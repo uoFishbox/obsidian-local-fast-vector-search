@@ -86,5 +86,25 @@ export class VectorizerSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+
+		new Setting(containerEl)
+			.setName("Search Result Limit")
+			.setDesc("Maximum number of search results to display.")
+			.addText((text) =>
+				text
+					.setPlaceholder("e.g., 100")
+					.setValue(this.plugin.settings.searchResultLimit.toString())
+					.onChange(async (value) => {
+						const limit = parseInt(value);
+						if (!isNaN(limit) && limit > 0) {
+							this.plugin.settings.searchResultLimit = limit;
+							await this.plugin.saveSettings();
+						} else {
+							new Notice(
+								"Please enter a valid positive number for search result limit."
+							);
+						}
+					})
+			);
 	}
 }
