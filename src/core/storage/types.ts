@@ -18,6 +18,7 @@ export interface SimilarityResultItem {
 export interface SearchOptions {
 	efSearch?: number;
 	limit?: number;
+	excludeFilePaths?: string[];
 }
 
 export interface ChunkInfo {

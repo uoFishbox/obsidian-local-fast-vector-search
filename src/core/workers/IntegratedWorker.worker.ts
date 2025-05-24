@@ -559,17 +559,38 @@ async function searchSimilar(
 	}
 	const quotedTableName = quoteIdentifier(EMBEDDINGS_TABLE_NAME);
 	const efSearch = options?.efSearch || 280;
+	const excludeFilePaths = options?.excludeFilePaths || [];
 
 	try {
 		await pgliteInstance.query(`SET hnsw.ef_search = ${efSearch}`);
 
-		const result = await pgliteInstance.query<SimilarityResultItem>(
-			`SELECT id, file_path, chunk_offset_start, chunk_offset_end, chunk,
+		let querySql = `
+			SELECT id, file_path, chunk_offset_start, chunk_offset_end, chunk,
 				 embedding <-> $1 as distance
 				 FROM ${quotedTableName}
-				 ORDER BY distance ASC
-				 LIMIT $2`,
-			[JSON.stringify(vector), limit]
+		`;
+		const queryParams: (string | number | string[])[] = [
+			JSON.stringify(vector),
+		];
+		let paramIndex = 2;
+
+		if (excludeFilePaths.length > 0) {
+			const placeholders = excludeFilePaths
+				.map(() => `$${paramIndex++}`)
+				.join(", ");
+			querySql += ` WHERE file_path NOT IN (${placeholders})`;
+			queryParams.push(...excludeFilePaths);
+		}
+
+		querySql += `
+			 ORDER BY distance ASC
+			 LIMIT $${paramIndex++}
+		`;
+		queryParams.push(limit);
+
+		const result = await pgliteInstance.query<SimilarityResultItem>(
+			querySql,
+			queryParams
 		);
 		return result.rows;
 	} catch (error) {
