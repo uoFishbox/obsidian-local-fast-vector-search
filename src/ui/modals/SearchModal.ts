@@ -3,12 +3,35 @@ import { CommandHandler } from "../../commands";
 import type { SimilarityResultItem } from "../../core/storage/types";
 import { NotificationService } from "../../shared/services/NotificationService";
 import { PluginSettings } from "../../pluginSettings";
+import { EditorView, keymap } from "@codemirror/view";
+import { EditorState, Prec } from "@codemirror/state";
+import { placeholder } from "@codemirror/view";
+
+function parseQueryString(queryString: string): {
+	positiveQuery: string;
+	negativeQuery?: string;
+} {
+	const parts = queryString.split(/-(.+)/s, 2);
+	const positiveQuery = parts[0].trim();
+	let negativeQuery: string | undefined = undefined;
+
+	if (parts.length > 1 && parts[1]) {
+		negativeQuery = parts[1].trim();
+		if (negativeQuery === "") {
+			negativeQuery = undefined;
+		}
+	}
+	return { positiveQuery, negativeQuery };
+}
 
 export class SearchModal extends SuggestModal<SimilarityResultItem> {
 	private commandHandler: CommandHandler;
 	private notificationService: NotificationService;
 	private pluginSettings: PluginSettings;
 	private shouldPerformSearch: boolean = false;
+
+	private cmView: EditorView | null = null;
+	private editorContainer: HTMLElement | null = null;
 
 	constructor(
 		app: App,
@@ -22,57 +45,118 @@ export class SearchModal extends SuggestModal<SimilarityResultItem> {
 		this.pluginSettings = pluginSettings;
 
 		this.containerEl.addClass("vector-search-modal");
-		this.inputEl.placeholder = "Enter your search query...";
+	}
 
-		this.inputEl.addEventListener(
-			"keydown",
-			async (event: KeyboardEvent) => {
-				if (event.key === "Tab") {
-					event.preventDefault();
-					const query = this.inputEl.value;
-					if (query.trim()) {
-						this.shouldPerformSearch = true;
-						this.inputEl.dispatchEvent(new Event("input"));
+	onOpen() {
+		super.onOpen();
+		this.inputEl.style.display = "none";
+		this.editorContainer = this.contentEl.createDiv({
+			cls: "cm-suggest-editor-container",
+		});
+
+		if (this.inputEl.parentNode) {
+			this.inputEl.parentNode.insertBefore(
+				this.editorContainer,
+				this.inputEl
+			);
+		} else {
+			this.contentEl.appendChild(this.editorContainer);
+		}
+
+		const initialState = EditorState.create({
+			doc: this.inputEl.value,
+			extensions: [
+				placeholder(
+					"Enter query (e.g., 'positive terms -negative terms')"
+				),
+				EditorView.updateListener.of((update) => {
+					if (update.docChanged && this.cmView) {
+						// CodeMirror の内容を非表示の inputEl.value と同期させる
+						// SuggestModal の内部がそれに依存している場合に重要
+						this.inputEl.value = this.cmView.state.doc.toString();
 					}
-				}
-			}
-		);
+				}),
+				Prec.highest(
+					keymap.of([
+						{
+							key: "Tab",
+							run: (view: EditorView): boolean => {
+								const query = view.state.doc.toString();
+								if (query.trim()) {
+									this.inputEl.value = query;
+									this.shouldPerformSearch = true;
+									// Tab キーが押されたときに input イベントをディスパッチ
+									this.inputEl.dispatchEvent(
+										new Event("input")
+									);
+								}
+								return true;
+							},
+						},
+					])
+				),
+			],
+		});
+
+		this.cmView = new EditorView({
+			state: initialState,
+			parent: this.editorContainer,
+		});
+		this.cmView.focus();
 	}
 
 	async getSuggestions(query: string): Promise<SimilarityResultItem[]> {
+		// クエリは this.inputEl.value から取得され、CodeMirror によって更新される。
+		// 'input' イベントは Tabによってディスパッチされる。
 		if (!query.trim()) {
+			this.shouldPerformSearch = false;
 			return [];
 		}
 		if (!this.commandHandler) {
 			this.notificationService.showNotice(
 				"CommandHandler is not available. Please try reloading the plugin."
 			);
+			this.shouldPerformSearch = false;
 			return [];
 		}
 
-		// Tabキーが押された場合のみ検索
 		if (!this.shouldPerformSearch) {
+			return [];
+		}
+
+		const { positiveQuery, negativeQuery } = parseQueryString(query);
+
+		if (!positiveQuery) {
+			this.notificationService.showNotice(
+				"Positive search query cannot be empty.",
+				3000
+			);
+			this.shouldPerformSearch = false;
 			return [];
 		}
 
 		const noticeId = this.notificationService.showNotice("Searching...", 0);
 		try {
 			const results = await this.commandHandler.searchSimilarNotes(
-				query,
+				positiveQuery,
+				negativeQuery,
 				this.pluginSettings.searchResultLimit
 			);
-			this.notificationService.showNotice(
-				`Found ${results.length} similar notes.`
+			this.notificationService.updateNotice(
+				noticeId,
+				`Found ${results.length} similar notes.`,
+				results.length > 0 ? 3000 : 1000
 			);
 			return results;
 		} catch (error: any) {
 			console.error("Error during search:", error);
-			this.notificationService.showNotice(
-				`Search failed: ${error.message}`
+			this.notificationService.updateNotice(
+				noticeId,
+				`Search failed: ${error.message}`,
+				5000
 			);
 			return [];
 		} finally {
-			this.notificationService.hideNotice(noticeId);
 			this.shouldPerformSearch = false;
 		}
 	}
@@ -104,5 +188,20 @@ export class SearchModal extends SuggestModal<SimilarityResultItem> {
 		evt: MouseEvent | KeyboardEvent
 	) {
 		this.app.workspace.openLinkText(item.file_path, item.file_path, false);
+	}
+
+	onClose() {
+		super.onClose();
+
+		// CodeMirror インスタンスを破棄
+		if (this.cmView) {
+			this.cmView.destroy();
+			this.cmView = null;
+		}
+		// エディタコンテナを DOM から削除
+		if (this.editorContainer) {
+			this.editorContainer.remove();
+			this.editorContainer = null;
+		}
 	}
 }

@@ -732,11 +732,63 @@ worker.onmessage = async (event: MessageEvent) => {
 				if (typeof payload.query !== "string") {
 					throw new Error("Invalid query for search command.");
 				}
-				const queryVector = (
-					await vectorizeSentences([payload.query])
+				const positiveQuery = payload.query as string;
+				const negativeQuery = payload.negativeQuery as
+					| string
+					| undefined;
+
+				const positiveVectorArray = (
+					await vectorizeSentences([positiveQuery])
 				)[0];
+				let searchVectorArray = positiveVectorArray;
+
+				if (negativeQuery && negativeQuery.trim() !== "") {
+					const negativeVectorArray = (
+						await vectorizeSentences([negativeQuery])
+					)[0];
+
+					if (!Tensor) {
+						postLogMessage(
+							"error",
+							"Tensor library (transformers.Tensor) is not available for vector operations."
+						);
+						throw new Error("Tensor library not available.");
+					}
+
+					if (
+						positiveVectorArray.length !==
+						negativeVectorArray.length
+					) {
+						postLogMessage(
+							"warn",
+							`Cannot subtract vectors of different dimensions. Positive: ${positiveVectorArray.length}, Negative: ${negativeVectorArray.length}. Skipping subtraction.`
+						);
+					} else {
+						searchVectorArray = positiveVectorArray.map(
+							(val, index) => val - negativeVectorArray[index]
+						);
+
+						let magnitude = 0;
+						for (const val of searchVectorArray) {
+							magnitude += val * val;
+						}
+						magnitude = Math.sqrt(magnitude);
+
+						if (magnitude > 1e-6) {
+							searchVectorArray = searchVectorArray.map(
+								(val) => val / magnitude
+							);
+						} else {
+							postLogMessage(
+								"warn",
+								"Resulting search vector is zero or near-zero after subtraction. Search may yield no results or behave unexpectedly."
+							);
+						}
+					}
+				}
+
 				const searchResults = await searchSimilar(
-					queryVector,
+					searchVectorArray,
 					payload.limit,
 					payload.options
 				);

@@ -118,6 +118,7 @@ export class CommandHandler {
 	// このメソッドは SearchModal から呼び出される
 	async searchSimilarNotes(
 		query: string,
+		negativeQuery?: string,
 		limit: number = 10
 	): Promise<SimilarityResultItem[]> {
 		if (!query.trim()) {
@@ -125,7 +126,7 @@ export class CommandHandler {
 			return [];
 		}
 		try {
-			return await this.searchService.search(query, limit);
+			return await this.searchService.search(query, negativeQuery, limit);
 		} catch (error) {
 			console.error("Error during similarity search:", error);
 			this.notificationService.showNotice(

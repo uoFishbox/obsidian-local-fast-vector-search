@@ -215,12 +215,13 @@ export class IntegratedWorkerProxy {
 
 	async searchSimilar(
 		query: string,
+		negativeQuery?: string,
 		limit?: number,
 		options?: SearchOptions
 	): Promise<SearchResult["payload"]> {
 		return this.sendRequest({
 			type: "search",
-			payload: { query, limit, options },
+			payload: { query, negativeQuery, limit, options },
 		});
 	}
 

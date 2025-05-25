@@ -6,6 +6,7 @@ export class SearchService {
 
 	public async search(
 		query: string,
+		negativeQuery?: string,
 		limit: number = 10
 	): Promise<SimilarityResultItem[]> {
 		if (!query.trim()) {
@@ -15,6 +16,7 @@ export class SearchService {
 			// workerProxy.searchSimilar が内部でベクトル化を行う
 			const searchResults = await this.workerProxy.searchSimilar(
 				query,
+				negativeQuery,
 				limit
 			);
 			return searchResults;

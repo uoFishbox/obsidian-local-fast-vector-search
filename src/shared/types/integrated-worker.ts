@@ -42,6 +42,7 @@ export interface SearchRequest extends BaseRequest {
 	type: "search";
 	payload: {
 		query: string;
+		negativeQuery?: string;
 		limit?: number;
 		options?: SearchOptions;
 	};
