@@ -90,6 +90,13 @@ export class SearchModal extends SuggestModal<SimilarityResultItem> {
 			text: `${fileName} (Distance: ${result.distance.toFixed(4)})`,
 			cls: "vector-search-result-link",
 		});
+		el.createEl("div", {
+			text: result.chunk
+				? result.chunk.replace(/\n/g, " ").substring(0, 200) +
+				  (result.chunk.length > 200 ? "..." : "")
+				: "",
+			cls: "vector-search-result-chunk",
+		});
 	}
 
 	onChooseSuggestion(

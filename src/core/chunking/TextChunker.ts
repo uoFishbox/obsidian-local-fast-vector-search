@@ -53,7 +53,7 @@ export class TextChunker {
 			);
 			if (chunkContent.length > 0) {
 				chunks.push({
-					chunk: `ファイル: ${fileName} 内容: ${chunkContent}`,
+					chunk: `${fileName}: ${chunkContent}`,
 					metadata: {
 						filePath: filePath || "",
 						startPosition: frontmatterLength + i,
@@ -69,9 +69,9 @@ export class TextChunker {
 
 	private extractTitleFromPath(filePath?: string): string {
 		if (!filePath) return "";
-		const fileName = filePath.split("/").pop();
+		const fileName = filePath.split(/[/\\]/).pop();
 		if (!fileName) return "";
-		const titleMatch = fileName.match(/^(.*?)\.[^.]*$/);
-		return titleMatch ? titleMatch[1] : "";
+		const titleMatch = fileName.match(/^(.*)\.[^.]+$/);
+		return titleMatch ? titleMatch[1] : fileName; // 拡張子がない場合はファイル名全体を返す
 	}
 }

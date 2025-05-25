@@ -44,7 +44,10 @@ export class VectorizationService {
 						onProgress(`${noticeMessage} (skipped empty)`, false);
 					continue;
 				}
-				const chunkInfos = this.textChunker.chunkText(content);
+				const chunkInfos = this.textChunker.chunkText(
+					content,
+					file.path
+				);
 				if (chunkInfos.length === 0) {
 					this.logger?.verbose_log(
 						`No chunks generated for file: ${file.path}`
