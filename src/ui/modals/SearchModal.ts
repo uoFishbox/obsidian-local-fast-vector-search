@@ -173,7 +173,7 @@ export class SearchModal extends SuggestModal<SimilarityResultItem> {
 				return "ファイルが見つかりません";
 			}
 
-			const content = await this.app.vault.read(file);
+			const content = await this.app.vault.cachedRead(file);
 			const extractedText = content.substring(startPosition, endPosition);
 
 			const cleanedText = extractedText.replace(/\n/g, " ");
