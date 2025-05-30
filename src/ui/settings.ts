@@ -106,5 +106,61 @@ export class VectorizerSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+
+		new Setting(containerEl)
+			.setName("Related Chunks Result Limit")
+			.setDesc(
+				"Maximum number of related chunks to display in the sidebar."
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("e.g., 10")
+					.setValue(
+						this.plugin.settings.relatedChunksResultLimit.toString()
+					)
+					.onChange(async (value) => {
+						const limit = parseInt(value);
+						if (!isNaN(limit) && limit > 0) {
+							this.plugin.settings.relatedChunksResultLimit =
+								limit;
+							await this.plugin.saveSettings();
+						} else {
+							new Notice(
+								"Please enter a valid positive number for related chunks result limit."
+							);
+						}
+					})
+			);
+		new Setting(containerEl)
+			.setName("Auto Show Related Chunks Sidebar")
+			.setDesc(
+				"Automatically open the related chunks sidebar when a note is opened."
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.autoShowRelatedChunksSidebar)
+					.onChange(async (value) => {
+						this.plugin.settings.autoShowRelatedChunksSidebar =
+							value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Expand Related Chunks File Groups")
+			.setDesc(
+				"Automatically expand file groups in the related chunks sidebar when the view is updated."
+			)
+			.addToggle((toggle) =>
+				toggle
+					.setValue(
+						this.plugin.settings.expandRelatedChunksFileGroups
+					)
+					.onChange(async (value) => {
+						this.plugin.settings.expandRelatedChunksFileGroups =
+							value;
+						await this.plugin.saveSettings();
+					})
+			);
 	}
 }

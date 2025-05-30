@@ -84,19 +84,55 @@ export interface DeleteVectorsByFilePathRequest extends BaseRequest {
 	};
 }
 
+export interface AverageVectorsRequest extends BaseRequest {
+	type: "averageVectors";
+	payload: {
+		vectors: number[][];
+	};
+}
+
+export interface SearchSimilarByVectorRequest extends BaseRequest {
+	type: "searchSimilarByVector";
+	payload: {
+		vector: number[];
+		limit?: number;
+		options?: SearchOptions;
+	};
+}
+
+export interface GetVectorsByFilePathRequest extends BaseRequest {
+	type: "getVectorsByFilePath";
+	payload: {
+		filePath: string;
+	};
+}
+
 export type WorkerRequest =
 	| InitializeRequest
 	| VectorizeSentencesRequest
 	| VectorizeAndStoreRequest
+	| BulkVectorizeAndLoadRequest
 	| SearchRequest
 	| RebuildDbRequest
+	| EnsureIndexesRequest
 	| TestSimilarityRequest
 	| CloseDbRequest
 	| DeleteVectorsByFilePathRequest
-	| BulkVectorizeAndLoadRequest
-	| EnsureIndexesRequest;
+	| AverageVectorsRequest
+	| SearchSimilarByVectorRequest
+	| GetVectorsByFilePathRequest;
 
 // ===== Response Types =====
+export interface AverageVectorsResponse extends BaseResponse {
+	type: "averageVectorsResult";
+	payload: number[];
+}
+
+export interface SearchSimilarByVectorResponse extends BaseResponse {
+	type: "searchSimilarByVectorResult";
+	payload: SimilarityResultItem[];
+}
+
 export interface InitializedResponse extends BaseResponse {
 	type: "initialized";
 	payload: boolean;
@@ -156,6 +192,11 @@ export interface DeleteVectorsByFilePathResponse extends BaseResponse {
 	};
 }
 
+export interface GetVectorsByFilePathResponse extends BaseResponse {
+	type: "getVectorsByFilePathResult";
+	payload: number[][];
+}
+
 export interface ErrorResponse extends BaseResponse {
 	type: "errorResponse";
 	payload: string;
@@ -179,13 +220,16 @@ export type WorkerResponse =
 	| InitializedResponse
 	| VectorizeSentencesResponse
 	| VectorizeAndStoreResponse
+	| BulkVectorizeAndLoadResponse
 	| SearchResult
 	| RebuildDbResponse
+	| EnsureIndexesResponse
 	| TestSimilarityResponse
 	| DbClosedResponse
 	| DeleteVectorsByFilePathResponse
+	| AverageVectorsResponse
+	| SearchSimilarByVectorResponse
+	| GetVectorsByFilePathResponse
 	| ErrorResponse
 	| StatusResponse
-	| ProgressResponse
-	| BulkVectorizeAndLoadResponse
-	| EnsureIndexesResponse;
+	| ProgressResponse;

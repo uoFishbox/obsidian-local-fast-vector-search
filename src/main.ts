@@ -1,4 +1,13 @@
-import { Plugin, Notice, App, TFile, type CachedMetadata } from "obsidian";
+import {
+	Plugin,
+	Notice,
+	App,
+	TFile,
+	type CachedMetadata,
+	WorkspaceLeaf,
+	debounce,
+	MarkdownView,
+} from "obsidian";
 import { LoggerService } from "./shared/services/LoggerService";
 import { CommandHandler } from "./commands";
 import { deleteDB } from "idb";
@@ -12,6 +21,11 @@ import { IntegratedWorkerProxy } from "./core/workers/IntegratedWorkerProxy";
 import { SearchModal } from "./ui/modals/SearchModal";
 import { DiscardDBModal } from "./ui/modals/DiscardDBModal";
 import { DeleteResourcesModal } from "./ui/modals/DeleteResourcesModal";
+import { NoteVectorService } from "./core/services/NoteVectorService";
+import {
+	RelatedChunksView,
+	VIEW_TYPE_RELATED_CHUNKS,
+} from "./ui/sidebar/RelatedChunksView";
 
 import { type PluginSettings, DEFAULT_SETTINGS } from "./pluginSettings";
 import { VectorizerSettingTab } from "./ui/settings";
@@ -30,7 +44,7 @@ export default class MyVectorPlugin extends Plugin {
 	notificationService: NotificationService | null = null;
 	textChunker: TextChunker | null = null;
 	logger: LoggerService | null = null;
-
+	noteVectorService: NoteVectorService | null = null;
 	private fileChangeTimers: Map<string, NodeJS.Timeout> = new Map();
 	private readonly DEBOUNCE_DELAY = 2500;
 	private boundHandleFileChange!: (
@@ -39,6 +53,9 @@ export default class MyVectorPlugin extends Plugin {
 		cache: CachedMetadata
 	) => void;
 	private boundHandleFileDelete!: (file: TFile) => void;
+	private debouncedHandleActiveLeafChange!: () => void;
+	private lastProcessedFilePath: string | null = null;
+
 	async onload() {
 		this.settings = Object.assign(
 			{},
@@ -48,6 +65,12 @@ export default class MyVectorPlugin extends Plugin {
 		this.logger = new LoggerService();
 		this.logger.updateSettings(this.settings);
 		this.addSettingTab(new VectorizerSettingTab(this.app, this));
+
+		this.debouncedHandleActiveLeafChange = debounce(
+			this.handleActiveLeafChange.bind(this),
+			100,
+			true
+		);
 
 		this.app.workspace.onLayoutReady(async () => {
 			if (this.logger)
@@ -66,6 +89,16 @@ export default class MyVectorPlugin extends Plugin {
 					this.initializationPromise = null;
 				}
 			);
+			if (this.settings.autoShowRelatedChunksSidebar) {
+				this.activateRelatedChunksView();
+			}
+			this.registerEvent(
+				this.app.workspace.on(
+					"active-leaf-change",
+					this.debouncedHandleActiveLeafChange
+				)
+			);
+			this.handleActiveLeafChange();
 		});
 
 		this.boundHandleFileChange = this.handleFileChange.bind(this);
@@ -76,6 +109,11 @@ export default class MyVectorPlugin extends Plugin {
 		);
 		this.registerEvent(
 			this.app.metadataCache.on("deleted", this.boundHandleFileDelete)
+		);
+
+		this.registerView(
+			VIEW_TYPE_RELATED_CHUNKS,
+			(leaf) => new RelatedChunksView(leaf, this)
 		);
 
 		this.addCommand({
@@ -209,6 +247,32 @@ export default class MyVectorPlugin extends Plugin {
 				}).open();
 			},
 		});
+
+		this.addCommand({
+			id: "show-related-chunks-sidebar",
+			name: "Show/Hide Related Chunks Sidebar",
+			callback: () => {
+				this.activateRelatedChunksView();
+			},
+		});
+	}
+
+	private initializeCustomServices() {
+		if (
+			this.textChunker &&
+			this.proxy &&
+			this.logger &&
+			!this.noteVectorService
+		) {
+			this.noteVectorService = new NoteVectorService(
+				this.app,
+				this.textChunker,
+				this.proxy,
+				this.logger
+			);
+			if (this.logger)
+				this.logger.verbose_log("NoteVectorService initialized.");
+		}
 	}
 
 	async handleFileChange(file: TFile, data: string, cache: CachedMetadata) {
@@ -483,6 +547,7 @@ export default class MyVectorPlugin extends Plugin {
 					"Not all resources were ready after initialization attempt."
 				);
 			}
+			this.initializeCustomServices();
 			initNotice.setMessage("Resources initialized successfully!");
 			setTimeout(() => initNotice.hide(), 2000);
 		} catch (error: any) {
@@ -513,6 +578,7 @@ export default class MyVectorPlugin extends Plugin {
 	}
 	async onunload() {
 		if (this.logger) this.logger.verbose_log("Unloading vector plugin...");
+		this.app.workspace.detachLeavesOfType(VIEW_TYPE_RELATED_CHUNKS);
 
 		// Terminate worker and clear services
 		if (this.proxy) {
@@ -529,9 +595,11 @@ export default class MyVectorPlugin extends Plugin {
 		this.storageManagementService = null;
 		this.initializationPromise = null;
 		this.proxy = null;
+		this.noteVectorService = null;
 
 		this.fileChangeTimers.forEach((timer) => clearTimeout(timer));
 		this.fileChangeTimers.clear();
+		this.lastProcessedFilePath = null; // リセット
 		if (this.logger)
 			this.logger.verbose_log(
 				"Cleared all file change debounce timers during unload."
@@ -539,11 +607,257 @@ export default class MyVectorPlugin extends Plugin {
 
 		this.logger = null;
 	}
+	async activateRelatedChunksView(): Promise<void> {
+		this.logger?.verbose_log(
+			`activateRelatedChunksView: Attempting to activate or create RelatedChunksView.`
+		);
+
+		try {
+			const { workspace } = this.app;
+			const existingLeaves = workspace.getLeavesOfType(
+				VIEW_TYPE_RELATED_CHUNKS
+			);
+
+			this.logger?.verbose_log(
+				`activateRelatedChunksView: Found ${existingLeaves.length} existing leaves.`
+			);
+
+			const primaryLeaf = this.cleanupDuplicateLeaves(existingLeaves);
+
+			if (primaryLeaf) {
+				this.logger?.verbose_log(
+					`activateRelatedChunksView: Reusing existing leaf.`
+				);
+				workspace.revealLeaf(primaryLeaf);
+				return;
+			}
+
+			this.logger?.verbose_log(
+				`activateRelatedChunksView: Creating new leaf.`
+			);
+
+			const newLeaf = await this.createRelatedChunksLeaf();
+			if (newLeaf) {
+				await newLeaf.setViewState({
+					type: VIEW_TYPE_RELATED_CHUNKS,
+					active: true,
+				});
+				workspace.revealLeaf(newLeaf);
+				this.logger?.verbose_log(
+					`activateRelatedChunksView: New leaf created and revealed successfully.`
+				);
+			} else {
+				throw new Error(
+					"Failed to create a new leaf for RelatedChunksView"
+				);
+			}
+		} catch (error) {
+			this.logger?.error(
+				`activateRelatedChunksView: Error occurred:`,
+				error
+			);
+			throw error;
+		}
+	}
+
+	private cleanupDuplicateLeaves(
+		leaves: WorkspaceLeaf[]
+	): WorkspaceLeaf | null {
+		if (leaves.length === 0) {
+			return null;
+		}
+
+		if (leaves.length > 1) {
+			this.logger?.warn(
+				`Found ${
+					leaves.length
+				} duplicate RelatedChunksView leaves. Cleaning up ${
+					leaves.length - 1
+				} duplicates.`
+			);
+
+			for (let i = 1; i < leaves.length; i++) {
+				this.logger?.verbose_log(
+					`Detaching duplicate leaf instance ${i + 1}.`
+				);
+				leaves[i].detach();
+			}
+		}
+
+		return leaves[0];
+	}
+
+	private async createRelatedChunksLeaf(): Promise<WorkspaceLeaf | null> {
+		const { workspace } = this.app;
+
+		let leaf = workspace.getRightLeaf(false);
+		if (leaf) {
+			this.logger?.verbose_log("Using right sidebar for new leaf.");
+			return leaf;
+		}
+
+		const activeMarkdownView = workspace.getActiveViewOfType(MarkdownView);
+		if (activeMarkdownView?.leaf) {
+			this.logger?.verbose_log(
+				"Creating leaf by splitting active markdown view."
+			);
+			try {
+				leaf = workspace.createLeafBySplit(
+					activeMarkdownView.leaf,
+					"vertical",
+					false
+				);
+				if (leaf) return leaf;
+			} catch (error) {
+				this.logger?.warn("Failed to create leaf by splitting:", error);
+			}
+		}
+
+		this.logger?.verbose_log("Creating new leaf in right sidebar.");
+		try {
+			leaf = workspace.getLeaf("split", "vertical");
+			if (leaf) return leaf;
+		} catch (error) {
+			this.logger?.warn("Failed to create leaf in right sidebar:", error);
+		}
+
+		this.logger?.verbose_log("Fallback: Creating floating leaf.");
+		try {
+			leaf = workspace.getLeaf(true);
+			return leaf;
+		} catch (error) {
+			this.logger?.error("Failed to create fallback leaf:", error);
+			return null;
+		}
+	}
+	private async handleActiveLeafChange() {
+		const currentActiveLeaf = this.app.workspace.activeLeaf;
+		if (
+			currentActiveLeaf &&
+			currentActiveLeaf.view instanceof RelatedChunksView
+		) {
+			this.logger?.verbose_log(
+				"Active leaf is RelatedChunksView itself, skipping update to prevent flickering or state loss."
+			);
+			return;
+		}
+
+		const activeFile = this.app.workspace.getActiveFile();
+		const currentFilePath = activeFile?.path || null;
+
+		// 同じファイルの場合は更新をスキップ
+		if (currentFilePath === this.lastProcessedFilePath) {
+			this.logger?.verbose_log(
+				`Active file is the same as previously processed (${currentFilePath}), skipping update.`
+			);
+			return;
+		}
+
+		this.lastProcessedFilePath = currentFilePath;
+
+		if (!this.noteVectorService) {
+			this.logger?.warn(
+				"NoteVectorService not ready for active leaf change."
+			);
+			try {
+				await this.ensureResourcesInitialized();
+				this.initializeCustomServices();
+				if (!this.noteVectorService) {
+					this.logger?.error(
+						"NoteVectorService still not ready after re-initialization attempt."
+					);
+					return;
+				}
+			} catch (error) {
+				this.logger?.error(
+					"Failed to initialize resources for active leaf change:",
+					error
+				);
+				return;
+			}
+		}
+
+		const sidebarLeaves = this.app.workspace.getLeavesOfType(
+			VIEW_TYPE_RELATED_CHUNKS
+		);
+
+		if (activeFile && activeFile.extension === "md") {
+			this.logger?.verbose_log(
+				`Active file changed: ${activeFile.path}. Finding related chunks.`
+			);
+			try {
+				const noteVector =
+					await this.noteVectorService.getNoteVectorFromDB(
+						activeFile
+					);
+				if (noteVector) {
+					const searchResults =
+						await this.noteVectorService.findSimilarChunks(
+							noteVector,
+							this.settings.relatedChunksResultLimit,
+							activeFile.path
+						);
+
+					if (sidebarLeaves.length > 0) {
+						const sidebarView = sidebarLeaves[0]
+							.view as RelatedChunksView;
+						sidebarView.updateView(
+							activeFile.basename,
+							searchResults
+						);
+					} else if (this.settings.autoShowRelatedChunksSidebar) {
+						await this.activateRelatedChunksView();
+						const newSidebarLeaves =
+							this.app.workspace.getLeavesOfType(
+								VIEW_TYPE_RELATED_CHUNKS
+							);
+						if (newSidebarLeaves.length > 0) {
+							const sidebarView = newSidebarLeaves[0]
+								.view as RelatedChunksView;
+							sidebarView.updateView(
+								activeFile.basename,
+								searchResults
+							);
+						}
+					}
+				} else {
+					this.logger?.verbose_log(
+						`Could not get note vector for ${activeFile.path}. It might not be vectorized yet or is empty.`
+					);
+					if (sidebarLeaves.length > 0) {
+						const sidebarView = sidebarLeaves[0]
+							.view as RelatedChunksView;
+						sidebarView.clearView();
+					}
+				}
+			} catch (error) {
+				this.logger?.error(
+					`Error processing related chunks for ${activeFile.path}:`,
+					error
+				);
+				this.notificationService?.showNotice(
+					"Failed to find related chunks. Check console."
+				);
+				if (sidebarLeaves.length > 0) {
+					const sidebarView = sidebarLeaves[0]
+						.view as RelatedChunksView;
+					sidebarView.clearView();
+				}
+			}
+		} else {
+			this.logger?.verbose_log(
+				"No active markdown file or active file is not markdown."
+			);
+			if (sidebarLeaves.length > 0) {
+				const sidebarView = sidebarLeaves[0].view as RelatedChunksView;
+				sidebarView.clearView();
+			}
+		}
+	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
 		if (this.logger) {
-			// nullチェックを追加
 			this.logger.updateSettings(this.settings);
 		}
 	}
@@ -575,6 +889,7 @@ export default class MyVectorPlugin extends Plugin {
 			this.searchService = null;
 			this.storageManagementService = null;
 			this.commandHandler = null;
+			this.noteVectorService = null;
 			this.logger?.verbose_log(
 				"IntegratedWorkerProxy terminated and plugin services reset."
 			);

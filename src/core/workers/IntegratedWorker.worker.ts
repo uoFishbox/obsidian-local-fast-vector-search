@@ -536,6 +536,46 @@ async function upsertVectors(
 	}
 }
 
+async function averageVectors(vectors: number[][]): Promise<number[]> {
+	if (vectors.length === 0) {
+		return [];
+	}
+
+	const dimensions = vectors[0].length;
+	const sumVector = new Array(dimensions).fill(0);
+
+	for (const vector of vectors) {
+		if (vector.length !== dimensions) {
+			postLogMessage(
+				"warn",
+				"Vectors have different dimensions, skipping some for averaging."
+			);
+			continue;
+		}
+		for (let i = 0; i < dimensions; i++) {
+			sumVector[i] += vector[i];
+		}
+	}
+
+	const averagedVector = sumVector.map((val) => val / vectors.length);
+
+	let magnitude = 0;
+	for (const val of averagedVector) {
+		magnitude += val * val;
+	}
+	magnitude = Math.sqrt(magnitude);
+
+	if (magnitude > 1e-6) {
+		return averagedVector.map((val) => val / magnitude);
+	} else {
+		postLogMessage(
+			"warn",
+			"Averaged vector is zero or near-zero, returning as is."
+		);
+		return averagedVector;
+	}
+}
+
 async function searchSimilar(
 	vector: number[],
 	limit: number = 20,
@@ -640,7 +680,7 @@ async function handleBulkVectorizeAndLoad(
 		return { count: 0 };
 	}
 
-	const PROCESSING_BATCH_SIZE = 100;
+	const PROCESSING_BATCH_SIZE = 200;
 	let totalProcessedCount = 0;
 
 	try {
@@ -756,6 +796,31 @@ async function handleEnsureIndexes(): Promise<{
 			success: false,
 			message: `Failed to create index ${indexName}: ${error.message}`,
 		};
+	}
+}
+
+async function handleGetVectorsByFilePath(
+	filePath: string
+): Promise<number[][]> {
+	if (!pgliteInstance) {
+		throw new Error(
+			"PGlite instance not initialized for getVectorsByFilePath."
+		);
+	}
+	const quotedTableName = quoteIdentifier(EMBEDDINGS_TABLE_NAME);
+	try {
+		const result = await pgliteInstance.query<{ embedding: string }>(
+			`SELECT embedding FROM ${quotedTableName} WHERE file_path = $1`,
+			[filePath]
+		);
+		return result.rows.map((row) => JSON.parse(row.embedding));
+	} catch (error) {
+		postLogMessage(
+			"error",
+			`Error getting vectors for file ${filePath}:`,
+			error
+		);
+		throw error;
 	}
 }
 
@@ -979,6 +1044,61 @@ worker.onmessage = async (event: MessageEvent) => {
 					id,
 					type: "deleteVectorsByFilePathResponse",
 					payload: { count: deleteResult.affectedRows ?? 0 },
+				} as WorkerResponse);
+				break;
+
+			case "averageVectors":
+				if (!Array.isArray(payload.vectors)) {
+					throw new Error(
+						"Invalid payload for averageVectors command."
+					);
+				}
+				const averagedVector = await averageVectors(
+					payload.vectors as number[][]
+				);
+				postMessage({
+					type: "averageVectorsResult",
+					payload: averagedVector,
+					id,
+				});
+				break;
+
+			case "searchSimilarByVector":
+				if (!Array.isArray(payload.vector)) {
+					throw new Error(
+						"Invalid payload for searchSimilarByVector command."
+					);
+				}
+				const searchByVectorResults = await searchSimilar(
+					payload.vector as number[],
+					payload.limit,
+					payload.options
+				);
+				postMessage({
+					type: "searchSimilarByVectorResult",
+					payload: searchByVectorResults,
+					id,
+				});
+				break;
+
+			case "getVectorsByFilePath":
+				if (!isDbInitialized) {
+					throw new Error(
+						"DB not initialized for getVectorsByFilePath."
+					);
+				}
+				if (typeof payload.filePath !== "string") {
+					throw new Error(
+						"Invalid filePath for getVectorsByFilePath command."
+					);
+				}
+				const fileVectors = await handleGetVectorsByFilePath(
+					payload.filePath as string
+				);
+				postMessage({
+					id,
+					type: "getVectorsByFilePathResult",
+					payload: fileVectors,
 				} as WorkerResponse);
 				break;
 

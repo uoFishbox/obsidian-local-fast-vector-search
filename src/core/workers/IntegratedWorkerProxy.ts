@@ -8,9 +8,14 @@ import {
 	type DeleteVectorsByFilePathResponse,
 	type BulkVectorizeAndLoadResponse,
 	type EnsureIndexesResponse,
+	type GetVectorsByFilePathResponse,
 } from "../../shared/types/integrated-worker";
 import IntegratedWorkerCode from "./IntegratedWorker.worker?worker";
-import type { ChunkInfo, SearchOptions } from "../../core/storage/types";
+import type {
+	ChunkInfo,
+	SearchOptions,
+	SimilarityResultItem,
+} from "../../core/storage/types";
 
 export class IntegratedWorkerProxy {
 	private worker: Worker;
@@ -181,7 +186,7 @@ export class IntegratedWorkerProxy {
 					);
 					reject(new Error(`Request timed out after 60 seconds.`));
 				}
-			}, 60000);
+			}, 60000 * 30);
 
 			// Promiseが解決または拒否されたときにタイムアウトをクリア
 			const promise = this.requestPromises.get(id);
@@ -267,6 +272,31 @@ export class IntegratedWorkerProxy {
 	async ensureIndexes(): Promise<EnsureIndexesResponse["payload"]> {
 		return this.sendRequest({
 			type: "ensureIndexes",
+		});
+	}
+
+	async averageVectors(vectors: number[][]): Promise<number[]> {
+		return this.sendRequest({
+			type: "averageVectors",
+			payload: { vectors },
+		});
+	}
+
+	async searchSimilarByVector(
+		vector: number[],
+		limit?: number,
+		options?: SearchOptions
+	): Promise<SimilarityResultItem[]> {
+		return this.sendRequest({
+			type: "searchSimilarByVector",
+			payload: { vector, limit, options },
+		});
+	}
+
+	async getVectorsByFilePath(filePath: string): Promise<number[][]> {
+		return this.sendRequest<GetVectorsByFilePathResponse["payload"]>({
+			type: "getVectorsByFilePath",
+			payload: { filePath },
 		});
 	}
 

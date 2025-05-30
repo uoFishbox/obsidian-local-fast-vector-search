@@ -10,3 +10,8 @@ If your plugin does not need CSS, delete this file.
     font-size: 0.8em;
     opacity: 0.7;
 }
+
+/* Minimal theme用 */
+body:not(.full-file-names .related-chunks-container ) .tree-item-self {
+    white-space: unset !important;
+}
