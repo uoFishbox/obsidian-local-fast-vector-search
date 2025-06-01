@@ -3,6 +3,7 @@ import {
 	Notice,
 	App,
 	TFile,
+	TAbstractFile,
 	type CachedMetadata,
 	WorkspaceLeaf,
 	debounce,
@@ -53,6 +54,10 @@ export default class MyVectorPlugin extends Plugin {
 		cache: CachedMetadata
 	) => void;
 	private boundHandleFileDelete!: (file: TFile) => void;
+	private boundHandleFileRename!: (
+		file: TAbstractFile,
+		oldPath: string
+	) => void;
 	private debouncedHandleActiveLeafChange!: () => void;
 	private lastProcessedFilePath: string | null = null;
 
@@ -103,12 +108,16 @@ export default class MyVectorPlugin extends Plugin {
 
 		this.boundHandleFileChange = this.handleFileChange.bind(this);
 		this.boundHandleFileDelete = this.handleFileDelete.bind(this);
+		this.boundHandleFileRename = this.handleFileRename.bind(this);
 
 		this.registerEvent(
 			this.app.metadataCache.on("changed", this.boundHandleFileChange)
 		);
 		this.registerEvent(
 			this.app.metadataCache.on("deleted", this.boundHandleFileDelete)
+		);
+		this.registerEvent(
+			this.app.vault.on("rename", this.boundHandleFileRename)
 		);
 
 		this.registerView(
@@ -275,7 +284,7 @@ export default class MyVectorPlugin extends Plugin {
 		}
 	}
 
-	async handleFileChange(file: TFile, data: string, cache: CachedMetadata) {
+	async handleFileChange(file: TFile, _data: string, _cache: CachedMetadata) {
 		if (!(file instanceof TFile && file.extension === "md")) {
 			return; // Only process markdown files
 		}
@@ -386,6 +395,71 @@ export default class MyVectorPlugin extends Plugin {
 			);
 			new Notice(
 				`Failed to remove vectors for ${file.basename}. Check console.`
+			);
+		}
+	}
+
+	async handleFileRename(file: TAbstractFile, oldPath: string) {
+		if (!(file instanceof TFile && file.extension === "md")) {
+			return;
+		}
+
+		if (this.logger)
+			this.logger.log(
+				`File rename detected: from '${oldPath}' to '${file.path}'`
+			);
+
+		if (this.fileChangeTimers.has(oldPath)) {
+			clearTimeout(this.fileChangeTimers.get(oldPath)!);
+			this.fileChangeTimers.delete(oldPath);
+			if (this.logger)
+				this.logger.verbose_log(
+					`Cleared pending change for renamed file: ${oldPath}`
+				);
+		}
+
+		if (this.fileChangeTimers.has(file.path)) {
+			clearTimeout(this.fileChangeTimers.get(file.path)!);
+			this.fileChangeTimers.delete(file.path);
+		}
+
+		try {
+			await this.ensureResourcesInitialized();
+			if (!this.vectorizationService) {
+				this.logger?.error(
+					"Vectorization service not ready in handleFileRename for: " +
+						oldPath
+				);
+				new Notice(
+					"Vectorization service not ready. Cannot update file path in DB."
+				);
+				return;
+			}
+
+			const updatedCount = await this.vectorizationService.updateFilePath(
+				oldPath,
+				file.path
+			);
+
+			if (updatedCount > 0) {
+				const message = `Updated file path in DB for ${
+					file.basename
+				} (formerly ${
+					oldPath.split("/").pop() || oldPath
+				}). ${updatedCount} vector(s) affected.`;
+				this.logger?.log(message);
+			} else {
+				this.logger?.verbose_log(
+					`No vectors found to update for path rename from ${oldPath} to ${file.path}.`
+				);
+			}
+		} catch (error) {
+			console.error(
+				`Error processing file rename from ${oldPath} to ${file.path}:`,
+				error
+			);
+			new Notice(
+				`Failed to update file path in DB for ${file.basename}. Check console.`
 			);
 		}
 	}

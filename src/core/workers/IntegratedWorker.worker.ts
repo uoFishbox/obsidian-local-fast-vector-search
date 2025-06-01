@@ -1104,6 +1104,33 @@ worker.onmessage = async (event: MessageEvent) => {
 				} as WorkerResponse);
 				break;
 
+			case "updateFilePath":
+				if (!isDbInitialized) {
+					throw new Error("DB not initialized for updateFilePath.");
+				}
+				if (
+					typeof payload.oldPath !== "string" ||
+					typeof payload.newPath !== "string"
+				) {
+					throw new Error(
+						"Invalid oldPath or newPath for updateFilePath command."
+					);
+				}
+				const oldPath = payload.oldPath as string;
+				const newPath = payload.newPath as string;
+				const updateResult = await pgliteInstance!.query(
+					`UPDATE ${quoteIdentifier(
+						EMBEDDINGS_TABLE_NAME
+					)} SET file_path = $1 WHERE file_path = $2`,
+					[newPath, oldPath]
+				);
+				postMessage({
+					id,
+					type: "updateFilePathResponse",
+					payload: { count: updateResult.affectedRows ?? 0 },
+				} as WorkerResponse);
+				break;
+
 			default:
 				postLogMessage("warn", `Unknown message type: ${type}`);
 				postMessage({

@@ -107,6 +107,14 @@ export interface GetVectorsByFilePathRequest extends BaseRequest {
 	};
 }
 
+export interface UpdateFilePathRequest extends BaseRequest {
+	type: "updateFilePath";
+	payload: {
+		oldPath: string;
+		newPath: string;
+	};
+}
+
 export type WorkerRequest =
 	| InitializeRequest
 	| VectorizeSentencesRequest
@@ -120,7 +128,8 @@ export type WorkerRequest =
 	| DeleteVectorsByFilePathRequest
 	| AverageVectorsRequest
 	| SearchSimilarByVectorRequest
-	| GetVectorsByFilePathRequest;
+	| GetVectorsByFilePathRequest
+	| UpdateFilePathRequest;
 
 // ===== Response Types =====
 export interface AverageVectorsResponse extends BaseResponse {
@@ -197,6 +206,13 @@ export interface GetVectorsByFilePathResponse extends BaseResponse {
 	payload: number[][];
 }
 
+export interface UpdateFilePathResponse extends BaseResponse {
+	type: "updateFilePathResponse";
+	payload: {
+		count: number;
+	};
+}
+
 export interface ErrorResponse extends BaseResponse {
 	type: "errorResponse";
 	payload: string;
@@ -230,6 +246,7 @@ export type WorkerResponse =
 	| AverageVectorsResponse
 	| SearchSimilarByVectorResponse
 	| GetVectorsByFilePathResponse
+	| UpdateFilePathResponse
 	| ErrorResponse
 	| StatusResponse
 	| ProgressResponse;

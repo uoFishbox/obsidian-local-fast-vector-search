@@ -9,6 +9,7 @@ import {
 	type BulkVectorizeAndLoadResponse,
 	type EnsureIndexesResponse,
 	type GetVectorsByFilePathResponse,
+	type UpdateFilePathResponse,
 } from "../../shared/types/integrated-worker";
 import IntegratedWorkerCode from "./IntegratedWorker.worker?worker";
 import type {
@@ -298,6 +299,19 @@ export class IntegratedWorkerProxy {
 			type: "getVectorsByFilePath",
 			payload: { filePath },
 		});
+	}
+
+	async updateFilePathInDB(
+		oldPath: string,
+		newPath: string
+	): Promise<number> {
+		const response = await this.sendRequest<
+			UpdateFilePathResponse["payload"]
+		>({
+			type: "updateFilePath",
+			payload: { oldPath, newPath },
+		});
+		return response.count;
 	}
 
 	// プラグインアンロード時に Worker を終了

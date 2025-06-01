@@ -32,28 +32,21 @@ export class VectorizationService {
 			).toFixed(1);
 			let noticeMessage = `Processing file ${fileIndex + 1}/${
 				files.length
-			} (${progressPercent}%): ${file.basename}`;
+			} (${progressPercent}%): ${file.basename.replace(/\.md$/, "")}`;
 
 			try {
 				const content = await this.app.vault.cachedRead(file);
-				if (!content.trim()) {
-					this.logger?.verbose_log(
-						`Skipping empty file: ${file.path}`
-					);
-					if (onProgress)
-						onProgress(`${noticeMessage} (skipped empty)`, false);
-					continue;
-				}
 				const chunkInfos = this.textChunker.chunkText(
 					content,
 					file.path
 				);
+
 				if (chunkInfos.length === 0) {
 					this.logger?.verbose_log(
-						`No chunks generated for file: ${file.path}`
+						`No chunks generated for file: ${file.path} (e.g., empty file without a path, or unchunkable content)`
 					);
 					if (onProgress)
-						onProgress(`${noticeMessage} (no chunks)`, false);
+						onProgress(`${noticeMessage} (skipped empty)`, false);
 					continue;
 				}
 
@@ -156,13 +149,6 @@ export class VectorizationService {
 		const currentContent =
 			contentToProcess ?? (await this.app.vault.cachedRead(file));
 
-		if (!currentContent.trim()) {
-			this.logger?.verbose_log(
-				`Skipping empty file or file became empty: ${file.path}. Vectors deleted: ${vectorsDeleted}`
-			);
-			return { vectorsProcessed, vectorsDeleted };
-		}
-
 		const chunkInfosFromTextChunker = this.textChunker.chunkText(
 			currentContent,
 			file.path
@@ -170,7 +156,7 @@ export class VectorizationService {
 
 		if (chunkInfosFromTextChunker.length === 0) {
 			this.logger?.verbose_log(
-				`No chunks generated for file: ${file.path} during update. Existing vectors (if any) were deleted: ${vectorsDeleted}`
+				`No chunks generated for file: ${file.path} (e.g., empty file without a path, or unchunkable content). Existing vectors (if any) were deleted: ${vectorsDeleted}`
 			);
 			return { vectorsProcessed, vectorsDeleted };
 		}
@@ -219,6 +205,29 @@ export class VectorizationService {
 			this.logger?.error(
 				`Error deleting vectors for file ${filePath}:`,
 				error
+			);
+			throw error;
+		}
+	}
+	public async updateFilePath(
+		oldPath: string,
+		newPath: string
+	): Promise<number> {
+		try {
+			this.logger?.verbose_log(
+				`Requesting update of file path from '${oldPath}' to '${newPath}' in DB.`
+			);
+			const updatedCount = await this.workerProxy.updateFilePathInDB(
+				oldPath,
+				newPath
+			);
+			this.logger?.verbose_log(
+				`Updated path for ${updatedCount} vectors from '${oldPath}' to '${newPath}'.`
+			);
+			return updatedCount;
+		} catch (error) {
+			this.logger?.error(
+				`Error updating file path from '${oldPath}' to '${newPath}' in DB`
 			);
 			throw error;
 		}
