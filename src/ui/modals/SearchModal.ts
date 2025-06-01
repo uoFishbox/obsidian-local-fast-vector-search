@@ -167,6 +167,13 @@ export class SearchModal extends SuggestModal<SimilarityResultItem> {
 		startPosition: number,
 		endPosition: number
 	): Promise<string> {
+		if (startPosition === -1 && endPosition === -1) {
+			const file = this.app.vault.getAbstractFileByPath(filePath);
+			if (file instanceof TFile) {
+				return `empty`;
+			}
+			return `empty`;
+		}
 		try {
 			const file = this.app.vault.getAbstractFileByPath(filePath);
 			if (!(file instanceof TFile)) {

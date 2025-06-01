@@ -94,6 +94,18 @@ export class RelatedChunksView extends ItemView {
 					...item,
 				};
 				if (
+					item.chunk_offset_start === -1 &&
+					item.chunk_offset_end === -1
+				) {
+					const file = this.plugin.app.vault.getAbstractFileByPath(
+						item.file_path
+					);
+					if (file instanceof TFile) {
+						itemWithPreview.previewText = `empty`;
+					} else {
+						itemWithPreview.previewText = `empty`;
+					}
+				} else if (
 					item.chunk_offset_start != null &&
 					item.chunk_offset_end != null
 				) {
@@ -140,31 +152,36 @@ export class RelatedChunksView extends ItemView {
 		if (file && file instanceof TFile) {
 			const leaf = this.app.workspace.getLeaf(false);
 			await leaf.openFile(file);
-			if (
-				item.chunk_offset_start != null &&
-				leaf.view instanceof MarkdownView
-			) {
-				const content = await this.app.vault.cachedRead(file);
-				let line = 0;
-				let ch = 0; // 行の先頭からの文字数
-				let currentOffset = 0;
-				for (let i = 0; i < content.length; i++) {
-					if (i === item.chunk_offset_start) {
-						ch = currentOffset;
-						break;
+			if (leaf.view instanceof MarkdownView) {
+				if (item.chunk_offset_start === -1) {
+					leaf.view.editor.setCursor({ line: 0, ch: 0 });
+					leaf.view.editor.scrollIntoView(
+						{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } },
+						true
+					);
+				} else if (item.chunk_offset_start != null) {
+					const content = await this.app.vault.cachedRead(file);
+					let line = 0;
+					let ch = 0;
+					let currentOffset = 0;
+					for (let i = 0; i < content.length; i++) {
+						if (i === item.chunk_offset_start) {
+							ch = currentOffset;
+							break;
+						}
+						if (content[i] === "\n") {
+							line++;
+							currentOffset = 0;
+						} else {
+							currentOffset++;
+						}
 					}
-					if (content[i] === "\n") {
-						line++;
-						currentOffset = 0; // 改行で行内オフセットをリセット
-					} else {
-						currentOffset++;
-					}
+					leaf.view.editor.setCursor({ line, ch });
+					leaf.view.editor.scrollIntoView(
+						{ from: { line, ch }, to: { line, ch } },
+						true
+					);
 				}
-				leaf.view.editor.setCursor({ line, ch });
-				leaf.view.editor.scrollIntoView(
-					{ from: { line, ch }, to: { line, ch } },
-					true
-				);
 			}
 		}
 	}
