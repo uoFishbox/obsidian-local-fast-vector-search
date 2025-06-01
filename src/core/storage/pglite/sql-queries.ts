@@ -1,3 +1,8 @@
+import {
+	HNSW_EF_CONSTRUCTION,
+	HNSW_M,
+} from "src/shared/constants/appConstants";
+
 export const SQL_QUERIES = {
 	CHECK_TABLE_EXISTS: `SELECT EXISTS (SELECT FROM pg_tables WHERE tablename = $1)`,
 	SET_ENVIRONMENT: `SET max_parallel_maintenance_workers = 16`,
@@ -30,8 +35,8 @@ export const SQL_QUERIES = {
 		CREATE INDEX IF NOT EXISTS $1
 		ON $2 USING hnsw ((embedding::halfvec(256)) halfvec_cosine_ops)
 		WITH (
-			m = 5,
-			ef_construction = 400
+			m = ${HNSW_M},
+			ef_construction = ${HNSW_EF_CONSTRUCTION}
 		)
 	`,
 };

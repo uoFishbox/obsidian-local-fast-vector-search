@@ -20,6 +20,8 @@ import type {
 	SimilarityResultItem,
 } from "../../core/storage/types";
 
+import { HNSW_EF_SEARCH } from "../../shared/constants/appConstants";
+
 // PGlite関連のインポート
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { IdbFs } from "@electric-sql/pglite";
@@ -585,7 +587,7 @@ async function searchSimilar(
 		throw new Error("PGlite instance is not initialized.");
 	}
 	const quotedTableName = quoteIdentifier(EMBEDDINGS_TABLE_NAME);
-	const efSearch = options?.efSearch || 280;
+	const efSearch = options?.efSearch || HNSW_EF_SEARCH;
 	const excludeFilePaths = options?.excludeFilePaths || [];
 
 	try {
