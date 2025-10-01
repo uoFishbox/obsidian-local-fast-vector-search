@@ -37,7 +37,8 @@ export class CommandHandler {
 		}
 
 		let vectorizeNoticeId = this.notificationService.showNotice(
-			"Starting vectorization for all notes..."
+			"Starting vectorization for all notes...",
+			0
 		);
 		const startAll = performance.now();
 
@@ -82,7 +83,8 @@ export class CommandHandler {
 	}
 	async rebuildAllIndexes(): Promise<void> {
 		let rebuildStatusNoticeId = this.notificationService.showNotice(
-			"Rebuilding all indexes... This may take a while."
+			"Rebuilding all indexes... This may take a while.",
+			0
 		);
 		try {
 			this.notificationService.updateNotice(

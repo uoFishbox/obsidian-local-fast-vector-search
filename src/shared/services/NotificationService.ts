@@ -6,7 +6,7 @@ export class NotificationService {
 
 	showNotice(message: string, duration?: number): string {
 		const id = `notice-${this.nextId++}`;
-		const notice = new Notice(message, duration);
+		const notice = new Notice(message, duration ?? 0);
 		this.notices.set(id, notice);
 		return id;
 	}

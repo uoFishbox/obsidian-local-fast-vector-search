@@ -529,7 +529,7 @@ export default class MyVectorPlugin extends Plugin {
 			this.logger.verbose_log(
 				"Initializing resources (Integrated Worker, Services, Command Handler)..."
 			);
-		const initNotice = new Notice("Initializing resources...", 0);
+		const initNotice = new Notice("Initializing resources...");
 
 		try {
 			// 0. 統合ワーカープロキシの初期化を最初に実行
@@ -630,7 +630,10 @@ export default class MyVectorPlugin extends Plugin {
 			initNotice.setMessage(
 				`Resource initialization failed: ${error.message}`
 			);
-			setTimeout(() => initNotice.hide(), 5000);
+			new Notice(
+				`Resource initialization failed: ${error.message}`,
+				5000
+			);
 			// 失敗時は全てをnullに戻し、再試行可能にする
 			this.commandHandler = null;
 			this.textChunker = null;
