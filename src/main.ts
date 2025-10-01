@@ -59,7 +59,7 @@ export default class MyVectorPlugin extends Plugin {
 		oldPath: string
 	) => void;
 	private debouncedHandleActiveLeafChange!: () => void;
-	private lastProcessedFilePath: string | null = null;
+	public lastProcessedFilePath: string | null = null;
 
 	async onload() {
 		this.settings = Object.assign(
@@ -339,6 +339,9 @@ export default class MyVectorPlugin extends Plugin {
 							`No vector changes for ${file.path} after update.`
 						);
 					}
+
+					this.lastProcessedFilePath = null;
+					await this.handleActiveLeafChange();
 				} catch (error) {
 					console.error(
 						`Error processing file change for ${file.path}:`,
@@ -388,6 +391,9 @@ export default class MyVectorPlugin extends Plugin {
 					`No vectors found to delete for ${file.path}.`
 				);
 			}
+
+			this.lastProcessedFilePath = null;
+			await this.handleActiveLeafChange();
 		} catch (error) {
 			console.error(
 				`Error processing file deletion for ${file.path}:`,
@@ -453,6 +459,9 @@ export default class MyVectorPlugin extends Plugin {
 					`No vectors found to update for path rename from ${oldPath} to ${file.path}.`
 				);
 			}
+
+			this.lastProcessedFilePath = null;
+			await this.handleActiveLeafChange();
 		} catch (error) {
 			console.error(
 				`Error processing file rename from ${oldPath} to ${file.path}:`,
@@ -601,7 +610,8 @@ export default class MyVectorPlugin extends Plugin {
 					this.vectorizationService,
 					this.searchService,
 					this.storageManagementService,
-					this.notificationService
+					this.notificationService,
+					this
 				);
 				if (this.logger)
 					this.logger.verbose_log(
@@ -807,7 +817,7 @@ export default class MyVectorPlugin extends Plugin {
 			return null;
 		}
 	}
-	private async handleActiveLeafChange() {
+	public async handleActiveLeafChange() {
 		const currentActiveLeaf = this.app.workspace.activeLeaf;
 		if (
 			currentActiveLeaf &&

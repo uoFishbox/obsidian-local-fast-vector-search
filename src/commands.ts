@@ -4,6 +4,7 @@ import type { SearchService } from "./core/services/SearchService";
 import type { StorageManagementService } from "./core/services/StorageManagementService";
 import type { SimilarityResultItem } from "./core/storage/types";
 import { NotificationService } from "./shared/services/NotificationService";
+import type MyVectorPlugin from "./main";
 
 export class CommandHandler {
 	private app: App;
@@ -11,19 +12,22 @@ export class CommandHandler {
 	private searchService: SearchService;
 	private storageManagementService: StorageManagementService;
 	private notificationService: NotificationService;
+	private plugin: MyVectorPlugin;
 
 	constructor(
 		app: App,
 		vectorizationService: VectorizationService,
 		searchService: SearchService,
 		storageManagementService: StorageManagementService,
-		notificationService: NotificationService
+		notificationService: NotificationService,
+		plugin: MyVectorPlugin
 	) {
 		this.app = app;
 		this.vectorizationService = vectorizationService;
 		this.searchService = searchService;
 		this.storageManagementService = storageManagementService;
 		this.notificationService = notificationService;
+		this.plugin = plugin;
 	}
 
 	async vectorizeAllNotes(): Promise<void> {
