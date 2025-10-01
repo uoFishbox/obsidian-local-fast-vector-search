@@ -545,7 +545,7 @@ export default class MyVectorPlugin extends Plugin {
 
 			// 1. Initialize TextChunker
 			if (!this.textChunker) {
-				this.textChunker = new TextChunker({}); // Use default options or load from settings
+				this.textChunker = new TextChunker();
 				if (this.logger)
 					this.logger.verbose_log("TextChunker initialized.");
 			}
