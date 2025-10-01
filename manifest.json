@@ -5,5 +5,5 @@
     "id": "local-fast-vector-search-plugin",
     "isDesktopOnly": false,
     "name": "Local Fast Vector Search",
-    "version": "1.2.2"
+    "version": "1.2.3"
 }
