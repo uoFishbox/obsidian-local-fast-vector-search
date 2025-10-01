@@ -345,12 +345,12 @@
 
 		<div class="related-chunks-file-group" use:onGroupRendered>
 			<div
-				class="related-chunks-file-header tree-item-self nav-file-title nav-folder-title"
+				class="related-chunks-file-header tree-item-self search-result-file-title"
 				role="button"
 				tabindex="0"
 			>
 				<div
-					class="tree-item-icon collapse-icon svg-icon right-triangle"
+					class="tree-item-icon collapse-icon"
 					class:is-collapsed={!isExpanded}
 					role="button"
 					tabindex="0"
@@ -360,7 +360,7 @@
 					{@html collapseIconSvg || ``}
 				</div>
 				<div
-					class="related-chunks-file-name"
+					class="related-chunks-file-name tree-item-inner"
 					role="button"
 					tabindex="0"
 					onclick={() => openNote(filePath)}
@@ -368,7 +368,11 @@
 				>
 					{getFileName(filePath)}
 				</div>
-				<div class="related-chunks-file-count">{chunks.length}</div>
+				<div class="tree-item-flair-outer">
+					<div class="related-chunks-file-count tree-item-flair">
+						{chunks.length}
+					</div>
+				</div>
 			</div>
 
 			{#if isExpanded}
@@ -397,45 +401,14 @@
 
 	.related-chunks-file-header {
 		display: flex;
-		padding: var(--size-2-2) var(--size-4-2) var(--size-2-2) var(--size-2-2);
 	}
 
 	.related-chunks-file-header:hover {
 		background-color: var(--background-modifier-hover);
 	}
 
-	.related-chunks-file-name {
-		flex-grow: 1;
-		word-break: break-all !important;
-		margin-left: var(--size-2-2);
-	}
-
-	.related-chunks-file-count {
-		margin-left: var(--size-4-1);
-		font-size: var(--font-ui-smaller);
-		color: var(--text-muted);
-	}
-
 	.related-chunks-list {
 		padding-left: 21px;
-	}
-
-	.tree-item-icon.collapse-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		position: relative;
-		margin-inline-start: unset;
-	}
-
-	.related-chunks-file-name {
-		flex-grow: 1;
-		word-break: break-all !important;
-		margin-left: var(--size-2-2);
-	}
-
-	.related-chunks-file-name:hover {
-		color: var(--text-accent);
 	}
 
 	.related-chunks-container {
