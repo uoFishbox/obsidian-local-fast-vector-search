@@ -3,10 +3,11 @@ import { mount, unmount } from "svelte";
 import RelatedChunksComponent from "./RelatedChunksComponent.svelte";
 import MyVectorPlugin from "../../main";
 import type { SimilarityResultItem } from "../../core/storage/types";
-
-interface SimilarityResultItemWithPreview extends SimilarityResultItem {
-	previewText?: string;
-}
+import type { SimilarityResultItemWithPreview } from "../../shared/types/ui";
+import {
+	offsetToPosition,
+	extractChunkPreview,
+} from "../../shared/utils/textUtils";
 
 export const VIEW_TYPE_RELATED_CHUNKS = "related-chunks-sidebar";
 
@@ -87,60 +88,40 @@ export class RelatedChunksView extends ItemView {
 	}
 	async updateView(noteName: string | null, results: SimilarityResultItem[]) {
 		this.currentNoteName = noteName;
-		// results を SimilarityResultItemWithPreview[] に変換
 		this.currentResults = await Promise.all(
-			results.map(async (item) => {
-				const itemWithPreview: SimilarityResultItemWithPreview = {
-					...item,
-				};
-				if (
-					item.chunk_offset_start === -1 &&
-					item.chunk_offset_end === -1
-				) {
-					const file = this.plugin.app.vault.getAbstractFileByPath(
-						item.file_path
-					);
-					if (file instanceof TFile) {
-						itemWithPreview.previewText = `empty`;
-					} else {
-						itemWithPreview.previewText = `empty`;
-					}
-				} else if (
-					item.chunk_offset_start != null &&
-					item.chunk_offset_end != null
-				) {
-					try {
-						const file =
-							this.plugin.app.vault.getAbstractFileByPath(
-								item.file_path
-							);
-						if (file && file instanceof TFile) {
-							const content =
-								await this.plugin.app.vault.cachedRead(file);
-							itemWithPreview.previewText = content.substring(
-								item.chunk_offset_start,
-								item.chunk_offset_end
-							);
-						} else {
-							itemWithPreview.previewText =
-								"File not found for preview.";
-						}
-					} catch (e) {
-						console.error("Error extracting text for preview:", e);
-						this.plugin.logger?.error(
-							"Error extracting text for preview:",
-							e
-						);
-						itemWithPreview.previewText = "Error loading preview.";
-					}
-				} else {
-					itemWithPreview.previewText =
-						"No position info for preview.";
-				}
-				return itemWithPreview;
-			})
+			results.map((item) => this.createItemWithPreview(item))
 		);
 		this.renderComponent();
+	}
+
+	private async createItemWithPreview(
+		item: SimilarityResultItem
+	): Promise<SimilarityResultItemWithPreview> {
+		const itemWithPreview: SimilarityResultItemWithPreview = { ...item };
+
+		try {
+			const file = this.plugin.app.vault.getAbstractFileByPath(
+				item.file_path
+			);
+
+			if (!(file instanceof TFile)) {
+				itemWithPreview.previewText = "File not found for preview.";
+				return itemWithPreview;
+			}
+
+			const content = await this.plugin.app.vault.cachedRead(file);
+			itemWithPreview.previewText = extractChunkPreview(
+				content,
+				item.chunk_offset_start ?? -1,
+				item.chunk_offset_end ?? -1
+			);
+		} catch (e) {
+			console.error("Error extracting text for preview:", e);
+			this.plugin.logger?.error("Error extracting text for preview:", e);
+			itemWithPreview.previewText = "Error loading preview.";
+		}
+
+		return itemWithPreview;
 	}
 
 	clearView() {
@@ -149,40 +130,25 @@ export class RelatedChunksView extends ItemView {
 
 	private async handleChunkClick(item: SimilarityResultItem) {
 		const file = this.app.vault.getAbstractFileByPath(item.file_path);
-		if (file && file instanceof TFile) {
-			const leaf = this.app.workspace.getLeaf(false);
-			await leaf.openFile(file);
-			if (leaf.view instanceof MarkdownView) {
-				if (item.chunk_offset_start === -1) {
-					leaf.view.editor.setCursor({ line: 0, ch: 0 });
-					leaf.view.editor.scrollIntoView(
-						{ from: { line: 0, ch: 0 }, to: { line: 0, ch: 0 } },
-						true
-					);
-				} else if (item.chunk_offset_start != null) {
-					const content = await this.app.vault.cachedRead(file);
-					let line = 0;
-					let ch = 0;
-					let currentOffset = 0;
-					for (let i = 0; i < content.length; i++) {
-						if (i === item.chunk_offset_start) {
-							ch = currentOffset;
-							break;
-						}
-						if (content[i] === "\n") {
-							line++;
-							currentOffset = 0;
-						} else {
-							currentOffset++;
-						}
-					}
-					leaf.view.editor.setCursor({ line, ch });
-					leaf.view.editor.scrollIntoView(
-						{ from: { line, ch }, to: { line, ch } },
-						true
-					);
-				}
-			}
+		if (!(file instanceof TFile)) {
+			return;
 		}
+
+		const leaf = this.app.workspace.getLeaf(false);
+		await leaf.openFile(file);
+
+		if (!(leaf.view instanceof MarkdownView)) {
+			return;
+		}
+
+		let position = { line: 0, ch: 0 };
+
+		if (item.chunk_offset_start != null && item.chunk_offset_start !== -1) {
+			const content = await this.app.vault.cachedRead(file);
+			position = offsetToPosition(content, item.chunk_offset_start);
+		}
+
+		leaf.view.editor.setCursor(position);
+		leaf.view.editor.scrollIntoView({ from: position, to: position }, true);
 	}
 }
