@@ -268,6 +268,14 @@
 		}
 	}
 
+	async function openNote(filePath: string): Promise<void> {
+		try {
+			await plugin.app.workspace.openLinkText(filePath, "");
+		} catch (error) {
+			console.error(`Failed to open note: ${filePath}`, error);
+		}
+	}
+
 	function expandFile(filePath: string): void {
 		const chunksToDisplay = allGroupedChunks.get(filePath) || [];
 		displayedChunksInExpandedGroups.set(filePath, []);
@@ -304,12 +312,6 @@
 		const fullName = parts[parts.length - 1] || filePath;
 		return fullName.replace(/\.[^/.]+$/, "");
 	}
-
-	function handleKeydown(event: KeyboardEvent, filePath: string): void {
-		if (event.key === "Enter") {
-			toggleFile(filePath);
-		}
-	}
 </script>
 
 <div class="related-chunks-container search-result-container">
@@ -337,16 +339,24 @@
 				class="related-chunks-file-header tree-item-self nav-file-title nav-folder-title"
 				role="button"
 				tabindex="0"
-				onclick={() => toggleFile(filePath)}
-				onkeydown={(e) => handleKeydown(e, filePath)}
 			>
 				<div
 					class="tree-item-icon collapse-icon svg-icon right-triangle"
 					class:is-collapsed={!isExpanded}
+					role="button"
+					tabindex="0"
+					onclick={() => toggleFile(filePath)}
+					onkeydown={(e) => e.key === "Enter" && toggleFile(filePath)}
 				>
 					{@html collapseIconSvg || ``}
 				</div>
-				<div class="related-chunks-file-name">
+				<div
+					class="related-chunks-file-name"
+					role="button"
+					tabindex="0"
+					onclick={() => openNote(filePath)}
+					onkeydown={(e) => e.key === "Enter" && openNote(filePath)}
+				>
 					{getFileName(filePath)}
 				</div>
 				<div class="related-chunks-file-count">{chunks.length}</div>
@@ -379,7 +389,6 @@
 	.related-chunks-file-header {
 		display: flex;
 		padding: var(--size-2-2) var(--size-4-2);
-		cursor: pointer;
 	}
 
 	.related-chunks-file-header:hover {
@@ -408,6 +417,16 @@
 		justify-content: center;
 		position: relative;
 		margin-inline-start: unset;
+	}
+
+	.related-chunks-file-name {
+		flex-grow: 1;
+		word-break: break-all !important;
+		margin-left: var(--size-2-2);
+	}
+
+	.related-chunks-file-name:hover {
+		color: var(--text-accent);
 	}
 
 	.related-chunks-container {
