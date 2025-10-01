@@ -397,7 +397,7 @@
 
 	.related-chunks-file-header {
 		display: flex;
-		padding: var(--size-2-2) var(--size-4-2);
+		padding: var(--size-2-2) var(--size-4-2) var(--size-2-2) var(--size-2-2);
 	}
 
 	.related-chunks-file-header:hover {
