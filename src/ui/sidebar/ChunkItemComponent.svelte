@@ -2,22 +2,30 @@
 	import { onMount, onDestroy } from "svelte";
 	import { MarkdownRenderer, Component } from "obsidian";
 	import type { SimilarityResultItem } from "../../core/storage/types";
+	import type { SimilarityResultItemWithPreview } from "../../shared/types/ui";
 	import type MyVectorPlugin from "../../main";
 
 	export let plugin: MyVectorPlugin;
-
-	interface SimilarityResultItemWithPreview extends SimilarityResultItem {
-		previewText?: string;
-	}
-
 	export let chunk: SimilarityResultItemWithPreview;
 	export let onChunkClick: (item: SimilarityResultItem) => Promise<void>;
 
 	let previewEl: HTMLDivElement;
 	let markdownComponent: Component | null = null;
 
-	onMount(async () => {
+	// プレビューテキストが変更されたらMarkdownを再レンダリング
+	$: if (previewEl && chunk.previewText) {
+		renderMarkdown();
+	}
+
+	async function renderMarkdown() {
+		// 既存のコンポーネントをクリーンアップ
+		if (markdownComponent) {
+			markdownComponent.unload();
+			markdownComponent = null;
+		}
+
 		if (previewEl && chunk.previewText) {
+			previewEl.innerHTML = ""; // 前のコンテンツをクリア
 			markdownComponent = new Component();
 			await MarkdownRenderer.render(
 				plugin.app,
@@ -30,6 +38,10 @@
 		} else if (previewEl && !chunk.previewText) {
 			previewEl.textContent = "Loading preview...";
 		}
+	}
+
+	onMount(async () => {
+		await renderMarkdown();
 	});
 
 	onDestroy(() => {
