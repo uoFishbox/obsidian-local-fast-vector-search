@@ -105,7 +105,8 @@ export class MarkdownChunker {
 		const withoutTables = this.preprocessMarkdownTables(
 			withoutQuotesAndCallouts
 		);
-		return this.removeUrls(withoutTables);
+		const withoutImageLinks = this.preprocessImageLinks(withoutTables);
+		return this.removeUrls(withoutImageLinks);
 	}
 
 	private static buildChunks(
@@ -248,6 +249,14 @@ export class MarkdownChunker {
 			return processedLine;
 		});
 		return processedLines.join("\n");
+	}
+
+	private static preprocessImageLinks(text: string): string {
+		// ![alt text](url) or ![alt|size](url)
+		const IMAGE_LINK_REGEX = /!\[.*?\]\(.*?\)/g;
+		return text.replace(IMAGE_LINK_REGEX, (match) =>
+			" ".repeat(match.length)
+		);
 	}
 
 	private static removeUrls(text: string): string {

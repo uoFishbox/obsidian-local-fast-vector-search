@@ -457,6 +457,105 @@ title: Test
 		});
 	});
 
+	describe("画像埋め込みリンクの処理", () => {
+		it("基本的な画像リンクを除去し、オフセットを維持する", async () => {
+			const content =
+				"これはテキストです。![alt text](image.png)続きのテキスト。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+
+			expect(chunk.text).not.toContain("![alt text](image.png)");
+
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe(
+				"これはテキストです。 続きのテキスト。"
+			);
+
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+		});
+
+		it("X.com のような埋め込みリンクも除去する", async () => {
+			const content =
+				"ツイートです。![x.com](https://x.com/imay3927/status/1880436093478375604)続き。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+
+			expect(chunk.text).not.toContain("![x.com]");
+
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("ツイートです。 続き。");
+
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+		});
+
+		it("複数の画像リンクを処理する", async () => {
+			const content = "![img1](1.png) テキスト ![img2](2.png)";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("テキスト");
+
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+		});
+
+		it("画像リンクがないテキストは影響を受けない", async () => {
+			const content = "これは画像リンクのない普通のテキストです。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+
+			expect(result).toHaveLength(1);
+			expect(result[0].text).toBe(
+				"これは画像リンクのない普通のテキストです。"
+			);
+			expect(result[0].originalOffsetStart).toBe(0);
+			expect(result[0].originalOffsetEnd).toBe(content.length);
+		});
+
+		it("オフセットがずれないことを厳密に確認する", async () => {
+			const prefix = "前の文章。\n";
+			const imageLink = "![alt text|100](path/to/image.png)";
+			const suffix = "\n後の文章。";
+			const content = prefix + imageLink + suffix;
+
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("前の文章。 後の文章。");
+
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+
+			const originalSlice = content.substring(
+				chunk.originalOffsetStart,
+				chunk.originalOffsetEnd
+			);
+			expect(originalSlice).toBe(content);
+		});
+	});
+
 	describe("実践的なMarkdownコンテンツ", () => {
 		it("見出しを含むMarkdownを処理できる", async () => {
 			const content = `# タイトル
