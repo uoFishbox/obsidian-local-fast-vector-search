@@ -6,6 +6,7 @@ export interface PluginSettings {
 	autoShowRelatedChunksSidebar: boolean;
 	expandRelatedChunksFileGroups: boolean;
 	excludeHeadersInVectorization: boolean;
+	initializationDelay: number;
 }
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -16,4 +17,5 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	autoShowRelatedChunksSidebar: true,
 	expandRelatedChunksFileGroups: true,
 	excludeHeadersInVectorization: false,
+	initializationDelay: 0,
 };
