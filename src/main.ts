@@ -103,6 +103,12 @@ export default class MyVectorPlugin extends Plugin {
 							3000
 						);
 						await this.resourceInitializer.commandHandler.rebuildAllIndexes();
+
+						this.logger?.log(
+							"Index rebuild complete. Updating related chunks sidebar."
+						);
+						this.viewManager.resetLastProcessedFile();
+						await this.viewManager.handleActiveLeafChange();
 					} else {
 						const errorMsg =
 							"Could not start rebuild: Command handler is not ready.";
@@ -111,17 +117,17 @@ export default class MyVectorPlugin extends Plugin {
 					}
 				} else {
 					// Normal background initialization when not rebuilding
-					this.resourceInitializer
-						.initializeResources()
-						.catch((error) => {
-							console.error(
-								"Background resource initialization failed:",
-								error
-							);
-							new Notice(
-								"Failed to initialize resources. Check console."
-							);
-						});
+					try {
+						await this.resourceInitializer.initializeResources();
+					} catch (error) {
+						console.error(
+							"Background resource initialization failed:",
+							error
+						);
+						new Notice(
+							"Failed to initialize resources. Check console."
+						);
+					}
 				}
 			} catch (error) {
 				const errorMsg =
