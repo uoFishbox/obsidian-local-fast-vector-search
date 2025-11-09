@@ -15,7 +15,8 @@ export class VectorizerSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl("h2", { text: "Vectorizer Settings" });
+
+		containerEl.createEl("h2", { text: "General" });
 
 		new Setting(containerEl)
 			.setName("Provider")
@@ -36,6 +37,27 @@ export class VectorizerSettingTab extends PluginSettingTab {
 			);
 
 		new Setting(containerEl)
+			.setName("Enable Verbose Logging")
+			.setDesc("Enable detailed logging for development purposes.")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(
+						this.plugin.settings.verboseLoggingEnabled || false
+					)
+					.onChange(async (value) => {
+						this.plugin.settings.verboseLoggingEnabled = value;
+						await this.plugin.saveSettings();
+						if (this.plugin.logger) {
+							this.plugin.logger.updateSettings({
+								verboseLoggingEnabled: value,
+							});
+						}
+					})
+			);
+
+		containerEl.createEl("h2", { text: "Database management" });
+
+		new Setting(containerEl)
 			.setName("Discard Database")
 			.setDesc("Permanently delete the PGlite database.")
 			.addButton((button) =>
@@ -49,7 +71,7 @@ export class VectorizerSettingTab extends PluginSettingTab {
 						}).open();
 					})
 			);
-		// Setting for Deleting Resources
+
 		new Setting(containerEl)
 			.setName("Delete Resources")
 			.setDesc(
@@ -67,26 +89,7 @@ export class VectorizerSettingTab extends PluginSettingTab {
 					})
 			);
 
-		new Setting(containerEl)
-			.setName("Enable Verbose Logging")
-			.setDesc("Enable detailed logging for development purposes.")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(
-						this.plugin.settings.verboseLoggingEnabled || false
-					) // settingsから現在の値を取得
-					.onChange(async (value) => {
-						this.plugin.settings.verboseLoggingEnabled = value;
-						await this.plugin.saveSettings();
-						// LoggerServiceに設定変更を通知
-						if (this.plugin.logger) {
-							// nullチェックを追加
-							this.plugin.logger.updateSettings({
-								verboseLoggingEnabled: value,
-							});
-						}
-					})
-			);
+		containerEl.createEl("h2", { text: "Search modal" });
 
 		new Setting(containerEl)
 			.setName("Search Result Limit")
@@ -107,6 +110,8 @@ export class VectorizerSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+
+		containerEl.createEl("h2", { text: "Related chunks view" });
 
 		new Setting(containerEl)
 			.setName("Related Chunks Result Limit")
@@ -132,6 +137,7 @@ export class VectorizerSettingTab extends PluginSettingTab {
 						}
 					})
 			);
+
 		new Setting(containerEl)
 			.setName("Auto Show Related Chunks Sidebar")
 			.setDesc(
