@@ -1,9 +1,9 @@
 {
     "author": "uoFishbox",
-    "authorUrl": "https://obsidian.md",
-    "description": "A plugin to test the Hugging Face Transformers library in Obsidian.",
+    "authorUrl": "https://github.com/uoFishbox/obsidian-local-fast-vector-search",
+    "description": "Enables fully local, high-speed document vectorization and vector search on CPUs using the StaticEmbedding model.",
     "id": "local-fast-vector-search-plugin",
     "isDesktopOnly": false,
     "name": "Local Fast Vector Search",
-    "version": "1.2.5"
+    "version": "1.2.6"
 }
