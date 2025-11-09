@@ -15,3 +15,10 @@ If your plugin does not need CSS, delete this file.
 body:not(.full-file-names .related-chunks-container ) .tree-item-self {
     white-space: unset !important;
 }
+
+.related-chunks-header {
+    margin-bottom: 0.5em;
+    color:var(--nav-heading-color);
+    font-size: var(--nav-item-size);
+    font-weight: var(--nav-heading-weight);
+}

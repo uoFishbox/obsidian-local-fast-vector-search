@@ -345,7 +345,7 @@
 <div class="related-chunks-container search-result-container">
 	{#if hasActiveNote}
 		<div class="related-chunks-header">
-			Related to: {activeNoteName}
+			Related to {activeNoteName}
 		</div>
 	{/if}
 
