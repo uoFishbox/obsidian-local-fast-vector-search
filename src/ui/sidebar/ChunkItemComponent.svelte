@@ -1,20 +1,25 @@
 <script lang="ts">
-	import { onMount, onDestroy } from "svelte";
+	import { onMount } from "svelte";
 	import { MarkdownRenderer, Component } from "obsidian";
 	import type { SimilarityResultItem } from "../../core/storage/types";
 	import type MyVectorPlugin from "../../main";
 
-	export let plugin: MyVectorPlugin;
-	export let chunk: SimilarityResultItem;
-	export let onChunkClick: (item: SimilarityResultItem) => Promise<void>;
-	export let getChunkPreview: (
-		chunk: SimilarityResultItem,
-	) => Promise<string>;
+	let {
+		plugin,
+		chunk,
+		onChunkClick,
+		getChunkPreview,
+	}: {
+		plugin: MyVectorPlugin;
+		chunk: SimilarityResultItem;
+		onChunkClick: (item: SimilarityResultItem) => Promise<void>;
+		getChunkPreview: (chunk: SimilarityResultItem) => Promise<string>;
+	} = $props();
 
-	let previewEl: HTMLDivElement;
-	let markdownComponent: Component | null = null;
-	let previewText: string | null = null;
-	let isLoading = true;
+	let previewEl = $state<HTMLDivElement>();
+	let markdownComponent = $state<Component | null>(null);
+	let previewText = $state<string | null>(null);
+	let isLoading = $state(true);
 	let observer: IntersectionObserver;
 
 	function viewportAction(node: HTMLElement) {
@@ -49,9 +54,11 @@
 	}
 
 	// previewTextが更新されたらMarkdownをレンダリングする
-	$: if (previewEl && previewText && !markdownComponent) {
-		renderMarkdown();
-	}
+	$effect(() => {
+		if (previewEl && previewText && !markdownComponent) {
+			renderMarkdown();
+		}
+	});
 
 	async function renderMarkdown() {
 		if (markdownComponent) {
@@ -74,14 +81,12 @@
 	}
 
 	onMount(() => {
-		// onMountでは何もしない（viewportActionがトリガーする）
-	});
-
-	onDestroy(() => {
-		if (markdownComponent) {
-			markdownComponent.unload();
-			markdownComponent = null;
-		}
+		return () => {
+			if (markdownComponent) {
+				markdownComponent.unload();
+				markdownComponent = null;
+			}
+		};
 	});
 </script>
 

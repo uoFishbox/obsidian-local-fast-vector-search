@@ -14,7 +14,6 @@ export class RelatedChunksView extends ItemView {
 	plugin: MyVectorPlugin;
 	component?: RelatedChunksComponent;
 	currentNoteName: string | null = null;
-	// SimilarityResultItemWithPreview[] から SimilarityResultItem[] に変更
 	currentResults: SimilarityResultItem[] = [];
 	target: HTMLElement | null = null;
 
@@ -42,7 +41,6 @@ export class RelatedChunksView extends ItemView {
 	}
 	private renderComponent() {
 		if (this.component) {
-			// 既存のコンポーネントがあればアンマウント
 			const oldComponent = this.component;
 			this.component = undefined; // 先にundefinedにして再帰呼び出しを防ぐ
 			try {
@@ -64,7 +62,6 @@ export class RelatedChunksView extends ItemView {
 				activeNoteName: this.currentNoteName,
 				relatedChunks: this.currentResults,
 				onChunkClick: this.handleChunkClick.bind(this),
-				// プレビューテキストをオンデマンドで取得する関数を渡す
 				getChunkPreview: this.getChunkPreview.bind(this),
 			},
 		}) as RelatedChunksComponent;
@@ -90,12 +87,10 @@ export class RelatedChunksView extends ItemView {
 	}
 	async updateView(noteName: string | null, results: SimilarityResultItem[]) {
 		this.currentNoteName = noteName;
-		// Promise.allによる事前処理を削除
 		this.currentResults = results;
 		this.renderComponent();
 	}
 
-	// createItemWithPreview から getChunkPreview にリネームし、責務を明確化
 	private async getChunkPreview(item: SimilarityResultItem): Promise<string> {
 		try {
 			const file = this.plugin.app.vault.getAbstractFileByPath(

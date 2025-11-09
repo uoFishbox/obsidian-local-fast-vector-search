@@ -1,19 +1,23 @@
 <script lang="ts">
 	import type MyVectorPlugin from "../../main";
 	import type { SimilarityResultItem } from "../../core/storage/types";
-	import type { SimilarityResultItemWithPreview } from "../../shared/types/ui";
-	import { writable, type Writable } from "svelte/store";
 	import { getIcon } from "obsidian";
 	import ChunkItemComponent from "./ChunkItemComponent.svelte";
-	import { onDestroy, onMount, tick } from "svelte";
+	import { onMount, tick, untrack } from "svelte";
 
-	export let plugin: MyVectorPlugin;
-	export let activeNoteName: string | null;
-	// relatedChunks の型を変更
-	export let relatedChunks: SimilarityResultItem[];
-	export let onChunkClick: (item: SimilarityResultItem) => Promise<void>;
-	// getChunkPreview prop を追加
-	export let getChunkPreview: (item: SimilarityResultItem) => Promise<string>;
+	let {
+		plugin,
+		activeNoteName = $bindable(null),
+		relatedChunks = $bindable([]),
+		onChunkClick,
+		getChunkPreview,
+	}: {
+		plugin: MyVectorPlugin;
+		activeNoteName: string | null;
+		relatedChunks: SimilarityResultItem[];
+		onChunkClick: (item: SimilarityResultItem) => Promise<void>;
+		getChunkPreview: (item: SimilarityResultItem) => Promise<string>;
+	} = $props();
 
 	type FileGroup = [string, SimilarityResultItem[]];
 	type ChunkMap = Map<string, SimilarityResultItem[]>;
@@ -23,31 +27,35 @@
 		isDisplaying: boolean;
 	};
 
-	let displayedFileGroups: FileGroup[] = [];
-	let allGroupedChunks: ChunkMap = new Map();
-	let displayedChunksInExpandedGroups: Map<string, SimilarityResultItem[]> =
-		new Map();
-	let chunkDisplayQueues: Map<string, ChunkQueue> = new Map();
-	let collapseIconSvg = "";
-	let isDisplaying = false;
-	let pendingDisplay: (() => void) | null = null;
+	let displayedFileGroups = $state<FileGroup[]>([]);
+	let allGroupedChunks = $state<ChunkMap>(new Map());
+	let displayedChunksInExpandedGroups = $state<
+		Map<string, SimilarityResultItem[]>
+	>(new Map());
+	let chunkDisplayQueues = $state<Map<string, ChunkQueue>>(new Map());
+	let collapseIconSvg = $state("");
+	let isDisplaying = $state(false);
+	let pendingDisplay = $state<(() => void) | null>(null);
+	let expandedFiles = $state<Set<string>>(new Set());
 
-	const expandedFiles: Writable<Set<string>> = writable(new Set());
-
-	$: hasActiveNote = Boolean(activeNoteName);
-	$: hasChunks = allGroupedChunks.size > 0;
-	$: showEmptyState = !hasChunks;
+	const hasActiveNote = $derived(Boolean(activeNoteName));
+	const hasChunks = $derived(allGroupedChunks.size > 0);
+	const showEmptyState = $derived(!hasChunks);
 
 	onMount(() => {
 		initializeIcon();
-		processAndDisplayChunks(relatedChunks);
+
+		return () => {
+			cleanup();
+		};
 	});
 
-	onDestroy(() => {
-		cleanup();
+	$effect(() => {
+		const chunks = relatedChunks;
+		untrack(() => {
+			processAndDisplayChunks(chunks);
+		});
 	});
-
-	$: processAndDisplayChunks(relatedChunks);
 
 	function initializeIcon(): void {
 		const iconElement = getIcon("right-triangle");
@@ -76,10 +84,8 @@
 		);
 	}
 
-	function groupChunksByPath(
-		chunks: SimilarityResultItem[], // 型を変更
-	): ChunkMap {
-		const map = new Map<string, SimilarityResultItemWithPreview[]>();
+	function groupChunksByPath(chunks: SimilarityResultItem[]): ChunkMap {
+		const map = new Map<string, SimilarityResultItem[]>();
 
 		if (!chunks?.length) {
 			return map;
@@ -124,11 +130,9 @@
 		}
 	}
 
-	function updateExpandedFiles(
-		chunks: SimilarityResultItem[], // 型を変更
-	): void {
+	function updateExpandedFiles(chunks: SimilarityResultItem[]): void {
 		if (!chunks?.length) {
-			expandedFiles.set(new Set());
+			expandedFiles = new Set();
 			return;
 		}
 
@@ -136,10 +140,10 @@
 			const allFilePaths = new Set(
 				chunks.map((chunk) => chunk.file_path),
 			);
-			expandedFiles.set(allFilePaths);
+			expandedFiles = allFilePaths;
 			initializeExpandedGroups(allFilePaths);
 		} else {
-			expandedFiles.set(new Set());
+			expandedFiles = new Set();
 		}
 	}
 
@@ -255,21 +259,19 @@
 	}
 
 	async function toggleFile(filePath: string): Promise<void> {
-		const isCurrentlyExpanded = $expandedFiles.has(filePath);
+		const isCurrentlyExpanded = expandedFiles.has(filePath);
 
-		expandedFiles.update((current) => {
-			const newSet = new Set(current);
-			if (newSet.has(filePath)) {
-				newSet.delete(filePath);
-			} else {
-				newSet.add(filePath);
-			}
-			return newSet;
-		});
+		const newSet = new Set(expandedFiles);
+		if (newSet.has(filePath)) {
+			newSet.delete(filePath);
+		} else {
+			newSet.add(filePath);
+		}
+		expandedFiles = newSet;
 
 		await tick();
 
-		const isNowExpanded = $expandedFiles.has(filePath);
+		const isNowExpanded = expandedFiles.has(filePath);
 
 		if (isNowExpanded && !isCurrentlyExpanded) {
 			expandFile(filePath);
@@ -356,7 +358,7 @@
 	{/if}
 
 	{#each displayedFileGroups as [filePath, chunks] (filePath)}
-		{@const isExpanded = $expandedFiles.has(filePath)}
+		{@const isExpanded = expandedFiles.has(filePath)}
 		{@const currentDisplayedChunks =
 			displayedChunksInExpandedGroups.get(filePath) || []}
 
