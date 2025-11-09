@@ -30,7 +30,7 @@ export class RelatedChunksView extends ItemView {
 		return "Related Chunks";
 	}
 	getIcon(): string {
-		return "lucide-link-2";
+		return "waypoints";
 	}
 	async onOpen() {
 		this.contentEl.empty();
