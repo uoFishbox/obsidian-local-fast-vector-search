@@ -9,23 +9,24 @@
 
 	export let plugin: MyVectorPlugin;
 	export let activeNoteName: string | null;
-	export let relatedChunks: SimilarityResultItemWithPreview[];
+	// relatedChunks の型を変更
+	export let relatedChunks: SimilarityResultItem[];
 	export let onChunkClick: (item: SimilarityResultItem) => Promise<void>;
+	// getChunkPreview prop を追加
+	export let getChunkPreview: (item: SimilarityResultItem) => Promise<string>;
 
-	type FileGroup = [string, SimilarityResultItemWithPreview[]];
-	type ChunkMap = Map<string, SimilarityResultItemWithPreview[]>;
+	type FileGroup = [string, SimilarityResultItem[]];
+	type ChunkMap = Map<string, SimilarityResultItem[]>;
 	type ChunkQueue = {
-		chunks: SimilarityResultItemWithPreview[];
+		chunks: SimilarityResultItem[];
 		currentIndex: number;
 		isDisplaying: boolean;
 	};
 
 	let displayedFileGroups: FileGroup[] = [];
 	let allGroupedChunks: ChunkMap = new Map();
-	let displayedChunksInExpandedGroups: Map<
-		string,
-		SimilarityResultItemWithPreview[]
-	> = new Map();
+	let displayedChunksInExpandedGroups: Map<string, SimilarityResultItem[]> =
+		new Map();
 	let chunkDisplayQueues: Map<string, ChunkQueue> = new Map();
 	let collapseIconSvg = "";
 	let isDisplaying = false;
@@ -76,7 +77,7 @@
 	}
 
 	function groupChunksByPath(
-		chunks: SimilarityResultItemWithPreview[],
+		chunks: SimilarityResultItem[], // 型を変更
 	): ChunkMap {
 		const map = new Map<string, SimilarityResultItemWithPreview[]>();
 
@@ -100,7 +101,7 @@
 	}
 
 	function processAndDisplayChunks(
-		chunks: SimilarityResultItemWithPreview[],
+		chunks: SimilarityResultItem[], // 型を変更
 	): void {
 		resetDisplayState();
 		allGroupedChunks = groupChunksByPath(chunks);
@@ -124,7 +125,7 @@
 	}
 
 	function updateExpandedFiles(
-		chunks: SimilarityResultItemWithPreview[],
+		chunks: SimilarityResultItem[], // 型を変更
 	): void {
 		if (!chunks?.length) {
 			expandedFiles.set(new Set());
@@ -401,6 +402,7 @@
 							<ChunkItemComponent
 								{chunk}
 								{onChunkClick}
+								{getChunkPreview}
 								{plugin}
 							/>
 						</div>

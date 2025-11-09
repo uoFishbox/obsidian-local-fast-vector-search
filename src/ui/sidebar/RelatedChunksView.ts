@@ -3,7 +3,6 @@ import { mount, unmount } from "svelte";
 import RelatedChunksComponent from "./RelatedChunksComponent.svelte";
 import MyVectorPlugin from "../../main";
 import type { SimilarityResultItem } from "../../core/storage/types";
-import type { SimilarityResultItemWithPreview } from "../../shared/types/ui";
 import {
 	offsetToPosition,
 	extractChunkPreview,
@@ -15,7 +14,8 @@ export class RelatedChunksView extends ItemView {
 	plugin: MyVectorPlugin;
 	component?: RelatedChunksComponent;
 	currentNoteName: string | null = null;
-	currentResults: SimilarityResultItemWithPreview[] = [];
+	// SimilarityResultItemWithPreview[] から SimilarityResultItem[] に変更
+	currentResults: SimilarityResultItem[] = [];
 	target: HTMLElement | null = null;
 
 	constructor(leaf: WorkspaceLeaf, plugin: MyVectorPlugin) {
@@ -64,6 +64,8 @@ export class RelatedChunksView extends ItemView {
 				activeNoteName: this.currentNoteName,
 				relatedChunks: this.currentResults,
 				onChunkClick: this.handleChunkClick.bind(this),
+				// プレビューテキストをオンデマンドで取得する関数を渡す
+				getChunkPreview: this.getChunkPreview.bind(this),
 			},
 		}) as RelatedChunksComponent;
 	}
@@ -88,29 +90,24 @@ export class RelatedChunksView extends ItemView {
 	}
 	async updateView(noteName: string | null, results: SimilarityResultItem[]) {
 		this.currentNoteName = noteName;
-		this.currentResults = await Promise.all(
-			results.map((item) => this.createItemWithPreview(item))
-		);
+		// Promise.allによる事前処理を削除
+		this.currentResults = results;
 		this.renderComponent();
 	}
 
-	private async createItemWithPreview(
-		item: SimilarityResultItem
-	): Promise<SimilarityResultItemWithPreview> {
-		const itemWithPreview: SimilarityResultItemWithPreview = { ...item };
-
+	// createItemWithPreview から getChunkPreview にリネームし、責務を明確化
+	private async getChunkPreview(item: SimilarityResultItem): Promise<string> {
 		try {
 			const file = this.plugin.app.vault.getAbstractFileByPath(
 				item.file_path
 			);
 
 			if (!(file instanceof TFile)) {
-				itemWithPreview.previewText = "File not found for preview.";
-				return itemWithPreview;
+				return "File not found for preview.";
 			}
 
 			const content = await this.plugin.app.vault.cachedRead(file);
-			itemWithPreview.previewText = extractChunkPreview(
+			return extractChunkPreview(
 				content,
 				item.chunk_offset_start ?? -1,
 				item.chunk_offset_end ?? -1
@@ -118,10 +115,8 @@ export class RelatedChunksView extends ItemView {
 		} catch (e) {
 			console.error("Error extracting text for preview:", e);
 			this.plugin.logger?.error("Error extracting text for preview:", e);
-			itemWithPreview.previewText = "Error loading preview.";
+			return "Error loading preview.";
 		}
-
-		return itemWithPreview;
 	}
 
 	clearView() {
