@@ -356,6 +356,107 @@ title: Test
 		});
 	});
 
+	describe("引用ブロックとコールアウトの処理", () => {
+		it("基本的な引用ブロックをパースし、オフセットを維持する", async () => {
+			const content = "> これは引用です。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			expect(result[0].text.trim()).toBe("これは引用です。");
+			// "> "を含まない
+			expect(result[0].text.startsWith("> ")).toBe(false);
+			expect(result[0].originalOffsetStart).toBe(0);
+			expect(result[0].originalOffsetEnd).toBe(content.length);
+		});
+
+		it("複数行の引用ブロックを結合してパースする", async () => {
+			const content = "> 最初の行。\n> 二番目の行。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const normalizedText = result[0].text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("最初の行。 二番目の行。");
+			// "> "を含まない
+			expect(result[0].text.startsWith("> ")).toBe(false);
+			expect(result[0].originalOffsetStart).toBe(0);
+			expect(result[0].originalOffsetEnd).toBe(content.length);
+		});
+
+		it("基本的なコールアウトをパースし、オフセットを維持する", async () => {
+			const content = "> [!NOTE] Title\n> Contents";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const normalizedText = result[0].text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("Title Contents");
+			expect(result[0].originalOffsetStart).toBe(0);
+			expect(result[0].originalOffsetEnd).toBe(content.length);
+		});
+
+		it("ハイフンを含むコールアウトタイプをパースする", async () => {
+			const content = "> [!info-box] Custom Title\n> Details here.";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const normalizedText = result[0].text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("Custom Title Details here.");
+			expect(result[0].originalOffsetStart).toBe(0);
+			expect(result[0].originalOffsetEnd).toBe(content.length);
+		});
+
+		it("入れ子の引用ブロックをパースする", async () => {
+			const content = ">> 入れ子の引用です。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			expect(result[0].text.trim()).toBe("入れ子の引用です。");
+			expect(result[0].originalOffsetStart).toBe(0);
+			expect(result[0].originalOffsetEnd).toBe(content.length);
+		});
+
+		it("引用符やコールアウトがないテキストは影響を受けない", async () => {
+			const content =
+				"これは通常のテキストです。 > や [!NOTE] はありません。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			expect(result[0].text).toBe(
+				"これは通常のテキストです。 > や [!NOTE] はありません。"
+			);
+		});
+
+		it("オフセットがずれないことを厳密に確認する", async () => {
+			const prefix = "前の文章。\n";
+			const callout = "> [!IMPORTANT] 重要\n> これは重要な情報です。";
+			const suffix = "\n後の文章。";
+			const content = prefix + callout + suffix;
+
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe(
+				"前の文章。 重要 これは重要な情報です。 後の文章。"
+			);
+
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+
+			const originalSlice = content.substring(
+				chunk.originalOffsetStart,
+				chunk.originalOffsetEnd
+			);
+			expect(originalSlice).toBe(content);
+		});
+	});
+
 	describe("実践的なMarkdownコンテンツ", () => {
 		it("見出しを含むMarkdownを処理できる", async () => {
 			const content = `# タイトル

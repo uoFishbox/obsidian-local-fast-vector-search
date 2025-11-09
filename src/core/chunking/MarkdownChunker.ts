@@ -101,7 +101,10 @@ export class MarkdownChunker {
 	}
 
 	private static sanitizeMarkdown(text: string): string {
-		const withoutTables = this.preprocessMarkdownTables(text);
+		const withoutQuotesAndCallouts = this.preprocessQuotesAndCallouts(text);
+		const withoutTables = this.preprocessMarkdownTables(
+			withoutQuotesAndCallouts
+		);
 		return this.removeUrls(withoutTables);
 	}
 
@@ -212,6 +215,37 @@ export class MarkdownChunker {
 
 			// 通常のテーブル行: '|' をスペースに置換して、内容を擬似的に抽出
 			return line.replace(/\|/g, " ");
+		});
+		return processedLines.join("\n");
+	}
+
+	private static preprocessQuotesAndCallouts(text: string): string {
+		const lines = text.split("\n");
+		const processedLines = lines.map((line) => {
+			let processedLine = line;
+			// 引用プレフィックス（`>`, `>>` など）にマッチ
+			const quoteMatch = processedLine.match(/^(\s*(?:>\s?)+)/);
+
+			if (quoteMatch) {
+				const prefix = quoteMatch[0];
+				// プレフィックスを空白で置換してオフセットを維持
+				let contentAfterPrefix = processedLine.substring(prefix.length);
+
+				// コールアウト [!KEYWORD] をチェック (ハイフンも許容)
+				const calloutMatch = contentAfterPrefix.match(
+					/^(\[!([a-zA-Z\-]+)\]\s*)/
+				);
+				if (calloutMatch) {
+					const calloutTag = calloutMatch[0];
+					// コールアウトタグも空白で置換
+					contentAfterPrefix =
+						" ".repeat(calloutTag.length) +
+						contentAfterPrefix.substring(calloutTag.length);
+				}
+
+				processedLine = " ".repeat(prefix.length) + contentAfterPrefix;
+			}
+			return processedLine;
 		});
 		return processedLines.join("\n");
 	}
