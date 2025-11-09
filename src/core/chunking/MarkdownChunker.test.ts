@@ -85,6 +85,118 @@ tags: [test, markdown]
 		});
 	});
 
+	describe("Markdownテーブル処理", () => {
+		it("基本的なテーブルをスペース区切りのテキストに変換する", async () => {
+			const content = `| ヘッダー1 | ヘッダー2 |
+|---|---|
+| 値1 | 値2 |`;
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("ヘッダー1 ヘッダー2 値1 値2");
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+		});
+
+		it("ヘッダー区切り行はチャンクに含まれない", async () => {
+			const content = `| A | B |\n|:--|--:|\n| 1 | 2 |`;
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+			expect(chunk.text).not.toContain("---");
+			expect(chunk.text).not.toContain(":-");
+			expect(chunk.text).not.toContain("-:");
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("A B 1 2");
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+		});
+
+		it("テーブルの前後のテキストは保持される", async () => {
+			const content = `前の文。
+| Col1 | Col2 |
+|---|---|
+| Val1 | Val2 |
+後の文。`;
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe(
+				"前の文。 Col1 Col2 Val1 Val2 後の文。"
+			);
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+		});
+
+		it("セル内の空白はトリムされるように扱われる", async () => {
+			const content = "|  spaced a   |   spaced b  |";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			const chunk = result[0];
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toBe("spaced a spaced b");
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+		});
+
+		it("テーブルがないMarkdownは影響を受けない", async () => {
+			const content = "これは通常の文章です。テーブルはありません。";
+			const result = await MarkdownChunker.chunkMarkdown(content);
+			expect(result).toHaveLength(1);
+			expect(result[0].text).toBe(
+				"これは通常の文章です。 テーブルはありません。"
+			);
+			expect(result[0].originalOffsetStart).toBe(0);
+			expect(result[0].originalOffsetEnd).toBe(content.length);
+		});
+
+		it("オフセットがずれないことを確認する", async () => {
+			const prefix = "前置きのテキスト。\n";
+			const table = `| a | b |\n|---|---|\n| c | d |`;
+			const content = prefix + table;
+
+			const result = await MarkdownChunker.chunkMarkdown(content);
+
+			expect(result.length).toBeGreaterThan(0);
+			const chunk = result[0];
+
+			// チャンクがテーブルの内容を含む（スペースで区切られている）
+			const normalizedText = chunk.text
+				.split(/\s+/)
+				.filter((w) => w)
+				.join(" ");
+			expect(normalizedText).toContain("a");
+			expect(normalizedText).toContain("b");
+			expect(normalizedText).toContain("c");
+			expect(normalizedText).toContain("d");
+
+			// オフセットが元のコンテンツと厳密に一致する
+			expect(chunk.originalOffsetStart).toBe(0);
+			expect(chunk.originalOffsetEnd).toBe(content.length);
+
+			// チャンクのオフセット範囲から元のテキストを切り出すと、テーブルが含まれている
+			const originalSlice = content.substring(
+				chunk.originalOffsetStart,
+				chunk.originalOffsetEnd
+			);
+			expect(originalSlice).toBe(content);
+		});
+	});
+
 	describe("長文の処理", () => {
 		it("MAX_CHUNK_SIZEを超える文章を分割する", async () => {
 			// 1000文字を超える長い文章

@@ -13,6 +13,8 @@ interface SentenceWithOffset {
 	text: string;
 	startOffset: number;
 	endOffset: number;
+	rawStartOffset: number;
+	rawEndOffset: number;
 }
 
 interface CacheEntry {
@@ -25,9 +27,6 @@ export class MarkdownChunker {
 	private static readonly MAX_CACHE_SIZE = 100;
 	private static readonly CACHE_TTL_MS = 5 * 60 * 1000; // 5分
 
-	/**
-	 * ノート内容のSHA-256ハッシュを生成
-	 */
 	private static async computeHash(content: string): Promise<string> {
 		const encoder = new TextEncoder();
 		const data = encoder.encode(content);
@@ -36,14 +35,10 @@ export class MarkdownChunker {
 		return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 	}
 
-	/**
-	 * キャッシュのクリーンアップ
-	 */
 	private static cleanupCache(): void {
 		const now = Date.now();
 		const entriesToDelete: string[] = [];
 
-		// 期限切れエントリーを削除
 		for (const [hash, entry] of this.cache.entries()) {
 			if (now - entry.timestamp > this.CACHE_TTL_MS) {
 				entriesToDelete.push(hash);
@@ -64,135 +59,169 @@ export class MarkdownChunker {
 		}
 	}
 
-	/**
-	 * キャッシュをクリア
-	 */
 	public static clearCache(): void {
 		this.cache.clear();
 	}
 
 	public static async chunkMarkdown(noteContent: string): Promise<Chunk[]> {
-		// ハッシュを計算してキャッシュをチェック
-		const contentHash = await this.computeHash(noteContent);
-		const cachedEntry = this.cache.get(contentHash);
-		const now = Date.now();
-
-		// キャッシュヒット: 有効期限内のエントリーがあれば返す
-		if (cachedEntry && now - cachedEntry.timestamp <= this.CACHE_TTL_MS) {
-			// チャンクオブジェクトのディープコピーを返す(参照を避ける)
-			return cachedEntry.chunks.map((chunk) => ({
-				text: chunk.text,
-				originalOffsetStart: chunk.originalOffsetStart,
-				originalOffsetEnd: chunk.originalOffsetEnd,
-				contributingSegmentIds: chunk.contributingSegmentIds
-					? [...chunk.contributingSegmentIds]
-					: [],
-			}));
+		const { hash, chunks: cachedChunks } = await this.tryGetCachedChunks(
+			noteContent
+		);
+		if (cachedChunks) {
+			return cachedChunks;
 		}
 
-		// キャッシュミス: チャンクを生成
 		const { processedText, frontmatterLength } =
 			this.removeFrontmatter(noteContent);
-
-		// URLを除去（位置関係は維持）
-		const textWithoutUrls = this.removeUrls(processedText);
-
-		if (!textWithoutUrls.trim()) {
+		const sanitizedText = this.sanitizeMarkdown(processedText);
+		if (!sanitizedText.trim()) {
 			return [];
 		}
 
-		const sentences = this.splitIntoSentences(textWithoutUrls);
-		const chunks: Chunk[] = [];
-		let currentChunk = "";
-		let chunkStartOffset = -1;
-		let chunkEndOffset = -1;
+		const sentences = this.splitIntoSentences(sanitizedText);
+		const chunks = this.buildChunks(sentences, frontmatterLength);
 
-		for (const sentence of sentences) {
-			const sentenceStart = frontmatterLength + sentence.startOffset;
-			const sentenceEnd = frontmatterLength + sentence.endOffset;
-			if (sentence.text.length > MAX_CHUNK_SIZE) {
-				if (currentChunk) {
-					chunks.push({
-						text: currentChunk,
-						originalOffsetStart: chunkStartOffset,
-						originalOffsetEnd: chunkEndOffset,
-						contributingSegmentIds: [],
-					});
-					currentChunk = "";
-					chunkStartOffset = -1;
-					chunkEndOffset = -1;
-				}
-				chunks.push({
-					text: sentence.text,
-					originalOffsetStart: sentenceStart,
-					originalOffsetEnd: sentenceEnd,
-					contributingSegmentIds: [],
-				});
-				continue;
-			}
-
-			const potential =
-				currentChunk + (currentChunk ? " " : "") + sentence.text;
-			if (potential.length <= MAX_CHUNK_SIZE) {
-				currentChunk = potential;
-				if (chunkStartOffset === -1) {
-					chunkStartOffset = sentenceStart;
-				}
-				chunkEndOffset = sentenceEnd;
-			} else {
-				if (currentChunk) {
-					chunks.push({
-						text: currentChunk,
-						originalOffsetStart: chunkStartOffset,
-						originalOffsetEnd: chunkEndOffset,
-						contributingSegmentIds: [],
-					});
-				}
-				currentChunk = sentence.text;
-				chunkStartOffset = sentenceStart;
-				chunkEndOffset = sentenceEnd;
-			}
-		}
-
-		if (currentChunk) {
-			chunks.push({
-				text: currentChunk,
-				originalOffsetStart: chunkStartOffset,
-				originalOffsetEnd: chunkEndOffset,
-				contributingSegmentIds: [],
-			});
-		}
-
-		// キャッシュに保存
-		this.cache.set(contentHash, {
-			chunks: chunks.map((chunk) => ({
-				text: chunk.text,
-				originalOffsetStart: chunk.originalOffsetStart,
-				originalOffsetEnd: chunk.originalOffsetEnd,
-				contributingSegmentIds: chunk.contributingSegmentIds
-					? [...chunk.contributingSegmentIds]
-					: [],
-			})),
-			timestamp: now,
-		});
-
-		this.cleanupCache();
-
+		this.storeChunksInCache(hash, chunks);
 		return chunks;
 	}
 
-	/**
-	 * URLを除去（位置関係を保つため空白で置換）
-	 */
+	private static async tryGetCachedChunks(
+		content: string
+	): Promise<{ hash: string; chunks: Chunk[] | null }> {
+		const hash = await this.computeHash(content);
+		const entry = this.cache.get(hash);
+		if (!entry) {
+			return { hash, chunks: null };
+		}
+		const now = Date.now();
+		if (now - entry.timestamp > this.CACHE_TTL_MS) {
+			return { hash, chunks: null };
+		}
+		return { hash, chunks: this.cloneChunks(entry.chunks) };
+	}
+
+	private static sanitizeMarkdown(text: string): string {
+		const withoutTables = this.preprocessMarkdownTables(text);
+		return this.removeUrls(withoutTables);
+	}
+
+	private static buildChunks(
+		sentences: SentenceWithOffset[],
+		frontmatterLength: number
+	): Chunk[] {
+		const chunks: Chunk[] = [];
+		let currentChunk = "";
+		let chunkStartRaw = -1;
+		let chunkEndRaw = -1;
+
+		const flushCurrentChunk = () => {
+			if (!currentChunk) {
+				return;
+			}
+			chunks.push(
+				this.createChunk(currentChunk, chunkStartRaw, chunkEndRaw)
+			);
+			currentChunk = "";
+			chunkStartRaw = -1;
+			chunkEndRaw = -1;
+		};
+
+		for (const sentence of sentences) {
+			const sentenceStartRaw =
+				frontmatterLength + sentence.rawStartOffset;
+			const sentenceEndRaw = frontmatterLength + sentence.rawEndOffset;
+
+			if (sentence.text.length > MAX_CHUNK_SIZE) {
+				flushCurrentChunk();
+				chunks.push(
+					this.createChunk(
+						sentence.text,
+						sentenceStartRaw,
+						sentenceEndRaw
+					)
+				);
+				continue;
+			}
+
+			const mergedText = currentChunk
+				? `${currentChunk} ${sentence.text}`
+				: sentence.text;
+			if (mergedText.length <= MAX_CHUNK_SIZE) {
+				currentChunk = mergedText;
+				if (chunkStartRaw === -1) {
+					chunkStartRaw = sentenceStartRaw;
+				}
+				chunkEndRaw = sentenceEndRaw;
+				continue;
+			}
+
+			flushCurrentChunk();
+			currentChunk = sentence.text;
+			chunkStartRaw = sentenceStartRaw;
+			chunkEndRaw = sentenceEndRaw;
+		}
+
+		flushCurrentChunk();
+		return chunks;
+	}
+
+	private static storeChunksInCache(hash: string, chunks: Chunk[]): void {
+		this.cache.set(hash, {
+			chunks: this.cloneChunks(chunks),
+			timestamp: Date.now(),
+		});
+		this.cleanupCache();
+	}
+
+	private static cloneChunks(chunks: Chunk[]): Chunk[] {
+		return chunks.map((chunk) => ({
+			text: chunk.text,
+			originalOffsetStart: chunk.originalOffsetStart,
+			originalOffsetEnd: chunk.originalOffsetEnd,
+			contributingSegmentIds: chunk.contributingSegmentIds
+				? [...chunk.contributingSegmentIds]
+				: [],
+		}));
+	}
+
+	private static createChunk(
+		text: string,
+		startRaw: number,
+		endRaw: number
+	): Chunk {
+		return {
+			text,
+			originalOffsetStart: startRaw,
+			originalOffsetEnd: endRaw,
+			contributingSegmentIds: [],
+		};
+	}
+
+	private static preprocessMarkdownTables(text: string): string {
+		const lines = text.split("\n");
+		const processedLines = lines.map((line) => {
+			// テーブル行かどうかを簡易的にチェック (e.g., "| a | b |")
+			if (!/^\s*\|.*\|\s*$/.test(line)) {
+				return line;
+			}
+
+			// ヘッダー区切り行 (e.g., "|---|:--:|--|") は空白で埋める
+			if (/^\s*\|(?:\s*:?-+:?\s*\|)+/.test(line)) {
+				return " ".repeat(line.length);
+			}
+
+			// 通常のテーブル行: '|' をスペースに置換して、内容を擬似的に抽出
+			return line.replace(/\|/g, " ");
+		});
+		return processedLines.join("\n");
+	}
+
 	private static removeUrls(text: string): string {
 		// http:// または https:// で始まるURLを空白で置換
 		const URL_REGEX = /https?:\/\/[^\s\)>\]]+/g;
 		return text.replace(URL_REGEX, (match) => " ".repeat(match.length));
 	}
 
-	/**
-	 * フロントマターを除去
-	 */
 	private static removeFrontmatter(text: string): {
 		processedText: string;
 		frontmatterLength: number;
@@ -230,7 +259,18 @@ export class MarkdownChunker {
 			) {
 				continue;
 			}
-			const rawSentence = text.slice(rangeStart, rangeEnd);
+			let expandedRangeStart = rangeStart;
+			while (expandedRangeStart > 0) {
+				const prevChar = text.charAt(expandedRangeStart - 1);
+				if (prevChar === "\n" || prevChar === "\r") {
+					break;
+				}
+				if (prevChar !== " " && prevChar !== "\t") {
+					break;
+				}
+				expandedRangeStart--;
+			}
+			const rawSentence = text.slice(expandedRangeStart, rangeEnd);
 			const trimmedLeading =
 				rawSentence.length - rawSentence.trimStart().length;
 			const trimmedTrailing =
@@ -242,12 +282,14 @@ export class MarkdownChunker {
 			if (!trimmedSentence) {
 				continue;
 			}
-			const baseStartOffset = rangeStart + trimmedLeading;
+			const baseStartOffset = expandedRangeStart + trimmedLeading;
 			// 長すぎる文はさらに分割
 			if (trimmedSentence.length > MAX_SENTENCE_CHARS) {
 				this.splitSentenceByMaxLength(
 					trimmedSentence,
 					baseStartOffset,
+					expandedRangeStart,
+					rangeEnd,
 					results
 				);
 			} else {
@@ -255,6 +297,8 @@ export class MarkdownChunker {
 					text: trimmedSentence,
 					startOffset: baseStartOffset,
 					endOffset: baseStartOffset + trimmedSentence.length,
+					rawStartOffset: expandedRangeStart,
+					rawEndOffset: rangeEnd,
 				});
 			}
 		}
@@ -264,6 +308,8 @@ export class MarkdownChunker {
 	private static splitSentenceByMaxLength(
 		sentenceText: string,
 		baseStartOffset: number,
+		baseRawStartOffset: number,
+		rangeEnd: number,
 		output: SentenceWithOffset[]
 	): void {
 		let cursor = 0;
@@ -294,10 +340,22 @@ export class MarkdownChunker {
 					baseStartOffset + cursor + trimmedLeading;
 				const segmentEndOffset =
 					segmentStartOffset + segmentText.length;
+				const segmentRawStartOffset =
+					cursor === 0
+						? baseRawStartOffset
+						: baseStartOffset + cursor;
+				const segmentRawEndOffset = (() => {
+					const calculated =
+						baseStartOffset + cursor + segmentRaw.length;
+					const isLastSegment = segmentEnd >= sentenceText.length;
+					return isLastSegment ? rangeEnd : calculated;
+				})();
 				output.push({
 					text: segmentText,
 					startOffset: segmentStartOffset,
 					endOffset: segmentEndOffset,
+					rawStartOffset: segmentRawStartOffset,
+					rawEndOffset: Math.min(segmentRawEndOffset, rangeEnd),
 				});
 			}
 			cursor = segmentEnd;
