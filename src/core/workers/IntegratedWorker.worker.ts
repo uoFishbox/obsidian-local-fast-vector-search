@@ -596,7 +596,7 @@ async function searchSimilar(
 		let querySql = `
 			SELECT id, file_path, chunk_offset_start, chunk_offset_end,
 			       NULL AS chunk, -- chunk カラムの代わりに NULL を返す
-				   embedding <-> $1 as distance
+				   embedding <=> $1 as distance
 			FROM ${quotedTableName}
 		`;
 		const queryParams: (string | number | string[])[] = [
