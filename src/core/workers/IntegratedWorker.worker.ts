@@ -555,6 +555,16 @@ async function initialize(): Promise<boolean> {
 				device: "idb",
 				fsType: "IdbFs",
 			});
+			postLogMessage(
+				"verbose",
+				`Checking environment: typeof Response = ${typeof Response}, typeof fetch = ${typeof fetch}`
+			);
+			if (typeof Response === "undefined") {
+				postLogMessage(
+					"error",
+					"FATAL: 'Response' object is undefined in worker scope!"
+				);
+			}
 			const pgLiteCreateStart = performance.now();
 			pgliteInstance = (await PGlite.create(dbPath, {
 				relaxedDurability: true,
