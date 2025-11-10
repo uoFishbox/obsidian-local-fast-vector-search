@@ -10,7 +10,9 @@ export class InitialRebuildModal extends Modal {
 
 	onOpen() {
 		const { contentEl } = this;
-		contentEl.createEl("h2", { text: "Welcome to My Vector Plugin!" });
+		contentEl.createEl("h2", {
+			text: "Welcome to Local Fast Vector Search Plugin!",
+		});
 		contentEl.createEl("p", {
 			text: "To get started, the plugin needs to scan your notes and create a vector index. This allows for fast similarity search. This process might take a few minutes depending on the number of notes you have.",
 		});
