@@ -24,10 +24,7 @@ export class DeleteResourcesModal extends Modal {
 						const notice = new Notice("Deleting resources...", 0);
 						try {
 							await this.onConfirm();
-							notice.setMessage(
-								"Resources deleted successfully. They will be re-downloaded on next use."
-							);
-							setTimeout(() => notice.hide(), 5000);
+							notice.hide();
 						} catch (error: any) {
 							console.error("Failed to delete resources:", error);
 							notice.setMessage(

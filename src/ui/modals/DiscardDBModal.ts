@@ -21,14 +21,16 @@ export class DiscardDBModal extends Modal {
 					.setButtonText("Discard")
 					.setCta()
 					.onClick(async () => {
+						const notice = new Notice("Discarding database...", 0);
 						try {
 							await this.onConfirm();
-							new Notice("Database discarded successfully.");
+							notice.hide();
 						} catch (error: any) {
 							console.error("Failed to discard database:", error);
-							new Notice(
+							notice.setMessage(
 								`Failed to discard database: ${error.message}`
 							);
+							setTimeout(() => notice.hide(), 7000);
 						} finally {
 							this.close();
 						}

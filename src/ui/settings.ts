@@ -47,7 +47,6 @@ export class VectorizerSettingTab extends PluginSettingTab {
 					.onClick(() => {
 						new DiscardDBModal(this.app, async () => {
 							await this.plugin.clearResources(true);
-							new Notice("Database discarded.");
 						}).open();
 					})
 			);
@@ -64,7 +63,6 @@ export class VectorizerSettingTab extends PluginSettingTab {
 					.onClick(() => {
 						new DeleteResourcesModal(this.app, async () => {
 							await this.plugin.clearResources(false);
-							new Notice("All resources deleted.");
 						}).open();
 					})
 			);
