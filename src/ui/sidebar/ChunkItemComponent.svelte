@@ -76,7 +76,9 @@
 				chunk.file_path,
 				markdownComponent,
 			);
-			markdownComponent.load();
+			if (markdownComponent) {
+				markdownComponent.load();
+			}
 		}
 	}
 
