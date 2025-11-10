@@ -1,3 +1,9 @@
+if (
+	typeof self !== "undefined" &&
+	typeof (self as any).process !== "undefined"
+) {
+	(self as any).process = undefined;
+}
 import { matmul } from "@huggingface/transformers";
 import type {
 	PreTrainedModelType,
@@ -70,16 +76,6 @@ const IDB_STORE_NAME_RESOURCES = "resources";
 
 // @ts-ignore global self for Worker
 const worker = self as DedicatedWorkerGlobalScope;
-
-// 重要！ Transformers.js が環境を誤認識するのを防ぐ:
-// self に process が存在するかチェックし、存在すれば undefined にする。transformers を import する前に行う必要がある。
-let originalProcess: any = (self as any).process;
-if (
-	typeof self !== "undefined" &&
-	typeof (self as any).process !== "undefined"
-) {
-	(self as any).process = undefined;
-}
 
 // ログメッセージをメインスレッドに送信するヘルパー関数
 function postLogMessage(
@@ -318,8 +314,6 @@ async function initialize(): Promise<boolean> {
 			"IntegratedWorker initialization completed. Model and DB ready."
 		);
 
-		// ↓ iOSでは、プラグインの相性でエラーの原因になる可能性があるためコメントアウト
-		// (self as any).process = originalProcess; // 元の process を復元
 		return true;
 	} catch (error: any) {
 		postLogMessage(
