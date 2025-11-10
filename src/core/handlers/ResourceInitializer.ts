@@ -87,16 +87,6 @@ export class ResourceInitializer {
 			return;
 		}
 
-		if (this.settings.initializationDelay > 0) {
-			this.logger?.log(
-				`Delaying resource initialization by ${this.settings.initializationDelay}ms as configured.`
-			);
-			await new Promise((resolve) =>
-				setTimeout(resolve, this.settings.initializationDelay)
-			);
-			this.logger?.verbose_log("Initialization delay finished.");
-		}
-
 		this.logger?.verbose_log(
 			"Initializing resources (Integrated Worker, Services, Command Handler)..."
 		);

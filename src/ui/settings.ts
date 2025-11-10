@@ -213,33 +213,6 @@ export class VectorizerSettingTab extends PluginSettingTab {
 
 		containerEl.createEl("h2", { text: "General" });
 
-		new Setting(containerEl)
-			.setName("Initialization Delay (ms)")
-			.setDesc(
-				"Delay before initializing resources after Obsidian starts. This can help avoid conflicts with other plugins accessing IndexedDB on startup. Requires reload."
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder("e.g., 5000")
-					.setValue(
-						this.plugin.settings.initializationDelay.toString()
-					)
-					.onChange(async (value) => {
-						const delay = parseInt(value, 10);
-						if (!isNaN(delay) && delay >= 0) {
-							this.plugin.settings.initializationDelay = delay;
-							await this.plugin.saveSettings();
-							new Notice(
-								"Initialization delay updated. Please reload the app for changes to take effect."
-							);
-						} else {
-							new Notice(
-								"Please enter a valid non-negative number for the delay."
-							);
-						}
-					})
-			);
-
 		// new Setting(containerEl)
 		// 	.setName("Provider")
 		// 	.setDesc(
