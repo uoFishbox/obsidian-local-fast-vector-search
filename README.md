@@ -43,3 +43,4 @@
 [^2]: `hotchpotch/static-embedding-japanese` を `transformers.js` で[すぐに扱えるように整理を行いました。](https://huggingface.co/cfsdwe/static-embedding-japanese-ONNX-for-js)
 
 
+
