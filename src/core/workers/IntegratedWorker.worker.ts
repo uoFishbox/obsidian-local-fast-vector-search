@@ -1,10 +1,10 @@
-if (
-	typeof self !== "undefined" &&
-	typeof (self as any).process !== "undefined"
-) {
-	(self as any).process = undefined;
+if (typeof (self as any).process !== "undefined") {
+	try {
+		delete (self as any).process;
+	} catch (e) {
+		(self as any).process = undefined;
+	}
 }
-import { matmul } from "@huggingface/transformers";
 import type {
 	PreTrainedModelType,
 	PreTrainedTokenizerType,
@@ -417,6 +417,8 @@ async function testSelfSimilarity(): Promise<string> {
 	}
 
 	postLogMessage("info", "Starting self-similarity test...");
+
+	const { matmul } = await import("@huggingface/transformers");
 
 	const exampleSentences = [
 		"カレーはおいしい。",
