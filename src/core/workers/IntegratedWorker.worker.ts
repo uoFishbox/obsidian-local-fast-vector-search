@@ -413,7 +413,7 @@ async function initialize(): Promise<boolean> {
 			config: {
 				model_type: "bert",
 			},
-			device: "auto",
+			device: "wasm",
 			dtype: "q8",
 			progress_callback: (progress: any) => {
 				// 最初のログと最後のログ、および10%単位での進捗ログのみ送信
