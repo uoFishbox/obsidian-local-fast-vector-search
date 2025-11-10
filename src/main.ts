@@ -19,6 +19,7 @@ import { FileEventHandler } from "./core/handlers/FileEventHandler";
 import { ResourceInitializer } from "./core/handlers/ResourceInitializer";
 import { ViewManager } from "./core/handlers/ViewManager";
 import { CommandRegistrar } from "./core/handlers/CommandRegistrar";
+import { InitialRebuildModal } from "./ui/modals/InitialRebuildModal";
 
 export default class MyVectorPlugin extends Plugin {
 	settings: PluginSettings = DEFAULT_SETTINGS;
@@ -92,6 +93,20 @@ export default class MyVectorPlugin extends Plugin {
 				const rebuildFlag = sessionStorage.getItem(
 					"my-vector-plugin-rebuild-flag"
 				);
+				// 初回起動チェック: rebuildFlagが無く、かつDBが存在しない場合
+				if (!rebuildFlag) {
+					const dbExists = await this.checkDbExists();
+					if (!dbExists) {
+						this.logger?.log(
+							"Database not found. Proposing initial index rebuild."
+						);
+						new InitialRebuildModal(this.app, () => {
+							this.commandRegistrar.rebuildAllIndexes();
+						}).open();
+						return; // ユーザーのアクションを待つため、ここで処理を終了
+					}
+				}
+
 				if (rebuildFlag === "true") {
 					sessionStorage.removeItem("my-vector-plugin-rebuild-flag");
 
@@ -264,5 +279,24 @@ export default class MyVectorPlugin extends Plugin {
 			? "Database discarded."
 			: "All resources deleted.";
 		new Notice(message);
+	}
+
+	private async checkDbExists(): Promise<boolean> {
+		try {
+			if (!("indexedDB" in window)) {
+				this.logger?.warn(
+					"IndexedDB is not supported in this environment."
+				);
+				return false;
+			}
+			const dbs = await indexedDB.databases();
+			return dbs.some((db) => db.name === `/pglite/${DB_NAME}`);
+		} catch (error) {
+			this.logger?.error(
+				"Failed to check for IndexedDB existence:",
+				error
+			);
+			return false;
+		}
 	}
 }
