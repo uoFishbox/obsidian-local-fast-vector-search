@@ -27,8 +27,11 @@ export class IntegratedWorkerProxy {
 	private isWorkerInitialized: boolean = false;
 	private initializationPromise: Promise<boolean>;
 	private logger: LoggerService | null;
+
 	constructor(logger: LoggerService | null) {
 		this.logger = logger;
+
+		// 通常のWorkerを作成（esbuildのインラインWorkerプラグインでバンドルされている）
 		this.worker = new IntegratedWorkerCode();
 		this.setupWorkerListeners();
 

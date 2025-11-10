@@ -1,10 +1,58 @@
+// アンチドートコード: @huggingface/transformers がロードされる前に 'process' を無力化する
+// 他のプラグインによる configurable: false の process オブジェクトの汚染に対処
 if (typeof (self as any).process !== "undefined") {
 	try {
-		delete (self as any).process;
+		// 1. Object.defineProperty で再定義を試みる（より強力）
+		Object.defineProperty(self, "process", {
+			value: undefined,
+			writable: true,
+			configurable: true,
+		});
+		console.log(
+			'[VectorPlugin Worker] Successfully redefined "process" to be configurable.'
+		);
 	} catch (e) {
-		(self as any).process = undefined;
+		console.warn(
+			'[VectorPlugin Worker] Could not redefine "process" with defineProperty:',
+			e
+		);
+	}
+
+	try {
+		// 2. 削除を試みる
+		delete (self as any).process;
+		console.log(
+			'[VectorPlugin Worker] Successfully deleted "process" object.'
+		);
+	} catch (e) {
+		console.warn('[VectorPlugin Worker] Could not delete "process":', e);
+		// 3. 削除に失敗した場合は undefined に設定
+		try {
+			(self as any).process = undefined;
+			console.log(
+				'[VectorPlugin Worker] Set "process" to undefined as fallback.'
+			);
+		} catch (e2) {
+			console.warn(
+				'[VectorPlugin Worker] Could not set "process" to undefined:',
+				e2
+			);
+		}
 	}
 }
+
+// 最終チェック: process が未定義または無害な状態か確認
+if (typeof (self as any).process !== "undefined") {
+	console.warn(
+		'[VectorPlugin Worker] Warning: "process" object still exists after neutralization attempts. Value:',
+		(self as any).process
+	);
+} else {
+	console.log(
+		'[VectorPlugin Worker] "process" object successfully neutralized.'
+	);
+}
+
 import type {
 	PreTrainedModelType,
 	PreTrainedTokenizerType,
