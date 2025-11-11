@@ -184,9 +184,16 @@ export default class LocalFastVectorizePlugin extends Plugin {
 								.setIcon("zoom-in")
 								.onClick(async () => {
 									try {
+										const activeFile =
+											this.app.workspace.getActiveFile();
+										const excludeFilePaths = activeFile
+											? [activeFile.path]
+											: [];
+
 										await this.resourceInitializer.ensureResourcesInitialized();
 										await this.viewManager.searchAndDisplayInSidebar(
-											selection
+											selection,
+											excludeFilePaths
 										);
 									} catch (error) {
 										this.logger?.error(

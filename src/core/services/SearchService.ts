@@ -1,4 +1,4 @@
-import type { SimilarityResultItem } from "../storage/types";
+import type { SimilarityResultItem, SearchOptions } from "../storage/types";
 import { IntegratedWorkerProxy } from "../workers/IntegratedWorkerProxy";
 
 export class SearchService {
@@ -7,7 +7,8 @@ export class SearchService {
 	public async search(
 		query: string,
 		negativeQuery?: string,
-		limit: number = 10
+		limit: number = 10,
+		options?: SearchOptions
 	): Promise<SimilarityResultItem[]> {
 		if (!query.trim()) {
 			return [];
@@ -17,7 +18,8 @@ export class SearchService {
 			const searchResults = await this.workerProxy.searchSimilar(
 				query,
 				negativeQuery,
-				limit
+				limit,
+				options
 			);
 			return searchResults;
 		} catch (error) {

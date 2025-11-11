@@ -145,7 +145,10 @@ export class ViewManager {
 		}
 	}
 
-	async searchAndDisplayInSidebar(query: string): Promise<void> {
+	async searchAndDisplayInSidebar(
+		query: string,
+		excludeFilePaths: string[] = []
+	): Promise<void> {
 		this.logger?.verbose_log(
 			`Searching for similar chunks for query: "${query}"`
 		);
@@ -176,7 +179,8 @@ export class ViewManager {
 			const results = await searchService.search(
 				query,
 				undefined,
-				this.settings.relatedChunksResultLimit
+				this.settings.relatedChunksResultLimit,
+				{ excludeFilePaths }
 			);
 
 			if (view) {
