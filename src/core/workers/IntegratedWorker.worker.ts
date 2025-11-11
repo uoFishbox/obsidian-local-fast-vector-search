@@ -334,7 +334,6 @@ async function initialize(): Promise<boolean> {
 	postLogMessage("info", "Initializing IntegratedWorker...");
 
 	try {
-		// Transformers.js モデルのロードロジック
 		postLogMessage("info", "Starting model download/load...");
 
 		let transformers: any;
@@ -434,7 +433,6 @@ async function initialize(): Promise<boolean> {
 							lastLoggedProgress + progressThreshold ||
 						progress.progress >= 99
 					) {
-						// 10%以上の進捗で出力、または最終段階
 						postMessage({ type: "progress", payload: progress });
 						postLogMessage(
 							"verbose",
@@ -526,7 +524,7 @@ async function initialize(): Promise<boolean> {
 			);
 		}
 
-		// PGliteの初期化ロジック
+		// PGliteの初期化
 		postLogMessage("info", "Initializing PGlite...");
 		let resources: any;
 		try {
@@ -593,7 +591,7 @@ async function initialize(): Promise<boolean> {
 			throw new Error(`PGlite creation failed: ${pgLiteError.message}`);
 		}
 
-		// スキーマ設定ロジック
+		// スキーマ設定
 		const tableName = EMBEDDINGS_TABLE_NAME;
 		const dimensions = EMBEDDINGS_DIMENSIONS;
 
@@ -756,7 +754,7 @@ async function vectorizeSentences(sentences: string[]): Promise<number[][]> {
 			}
 		);
 
-		// メモリ解放 (重要)
+		// メモリ解放
 		embeddingTensor.dispose();
 		if (outputs.last_hidden_state instanceof Tensor)
 			outputs.last_hidden_state.dispose();
@@ -876,7 +874,7 @@ async function upsertVectors(
 
 	try {
 		await pgliteInstance.transaction(async (tx: Transaction) => {
-			// UPSERT処理のみ実行（deleteExistingRecordsは削除）
+			// UPSERT処理のみ実行
 			await batchInsertRecords(tx, items, batchSize);
 		});
 
@@ -1015,7 +1013,6 @@ async function rebuildDatabaseInternal(): Promise<void> {
 		await pgliteInstance.exec(createTableSql);
 		postLogMessage("info", `Table ${tableName} ensured (without index).`);
 
-		// DO NOT CREATE INDEX HERE
 		postLogMessage(
 			"info",
 			"Database table rebuild (without index) completed successfully."
